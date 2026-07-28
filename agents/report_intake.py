@@ -32,7 +32,7 @@ PRICE_PER_KG_BANDS: dict[MaterialType, tuple[float, float]] = {
     MaterialType.PLASTIC_PET: (20, 200),
     MaterialType.PLASTIC_HDPE: (15, 150),
     MaterialType.GLASS: (2, 20),
-    MaterialType.METAL_ALUMINUM: (150, 500),
+    MaterialType.METAL_ALUMINUM: (150, 1500),
     MaterialType.METAL_STEEL: (30, 200),
     MaterialType.CARDBOARD: (5, 40),
     MaterialType.MIXED_PAPER: (5, 30),
