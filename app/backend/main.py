@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from supervisor import submit_report, query_price
-import store
+from app.backend.supervisor import submit_report, query_price
+import app.backend.store as store
 
 app = FastAPI(title="ScrapSense")
 

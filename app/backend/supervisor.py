@@ -11,12 +11,12 @@ from __future__ import annotations
 import statistics as _stats
 from collections import defaultdict
 
-from agent_schemas.report import MaterialType, PriceReport
+from app.backend.agent_schemas.report import MaterialType, PriceReport
 from agents.report_intake import process_report
 from agents.anomaly_detect import check_anomaly
 from agents.price_estimator import estimate, PriceEstimate
-from ml_anomaly_model import load as load_ml_model, train as train_ml_model
-import store
+from app.backend.ml_anomaly_model import load as load_ml_model, train as train_ml_model
+import app.backend.store as store
 
 _ml_model = load_ml_model()
 

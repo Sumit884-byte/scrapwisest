@@ -32,10 +32,10 @@ from typing import Optional, TypedDict
 from langgraph.graph import END, StateGraph
 from pydantic import BaseModel, Field
 
-from agent_schemas.report import PriceReport
-from ml_anomaly_model import score as ml_score
+from app.backend.agent_schemas.report import PriceReport
+from app.backend.ml_anomaly_model import score as ml_score
 
-from chat_model import gemini_model
+from app.backend.chat_model import gemini_model
 
 # ---------------------------------------------------------------------------
 # TOGGLE

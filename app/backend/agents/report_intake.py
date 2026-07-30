@@ -14,14 +14,14 @@ from enum import Enum
 from typing import Optional, TypedDict
 
 from pydantic import BaseModel, Field
-from chat_model import gemini_model
+from app.backend.chat_model import gemini_model
 
 from langgraph.graph import StateGraph, START, END
 
 logger = logging.getLogger(__name__)
 
 
-from agent_schemas.report import RawExtraction, PriceReport, MaterialType
+from app.backend.agent_schemas.report import RawExtraction, PriceReport, MaterialType
 
 KNOWN_MATERIALS = [m.value for m in MaterialType]
 

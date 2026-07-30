@@ -8,7 +8,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from agent_schemas.report import PriceReport
+from app.backend.agent_schemas.report import PriceReport
 
 _DB_PATH = Path("data/reports.db")
 

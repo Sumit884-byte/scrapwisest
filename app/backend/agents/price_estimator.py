@@ -15,7 +15,7 @@ from __future__ import annotations
 import statistics
 from dataclasses import dataclass
 
-from agent_schemas.report import MaterialType, PriceReport
+from app.backend.agent_schemas.report import MaterialType, PriceReport
 
 # Minimum report counts before a tier is considered reliable on its own
 MIN_LOCAL = 5

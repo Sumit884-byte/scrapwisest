@@ -1,5 +1,5 @@
 from typing_extensions import TypedDict, Annotated
-from agent_schemas.report import PriceReport
+from app.backend.agent_schemas.report import PriceReport
 
 class MessagesState(TypedDict):
     message: str
