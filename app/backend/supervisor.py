@@ -12,9 +12,9 @@ import statistics as _stats
 from collections import defaultdict
 
 from app.backend.agent_schemas.report import MaterialType, PriceReport
-from agents.report_intake import process_report
-from agents.anomaly_detect import check_anomaly
-from agents.price_estimator import estimate, PriceEstimate
+from app.backend.agents.report_intake import process_report
+from app.backend.agents.anomaly_detect import check_anomaly
+from app.backend.agents.price_estimator import estimate, PriceEstimate
 from app.backend.ml_anomaly_model import load as load_ml_model, train as train_ml_model
 import app.backend.store as store
 
