@@ -10,7 +10,7 @@ from pathlib import Path
 
 from app.backend.agent_schemas.report import PriceReport
 
-_DB_PATH = Path("data/reports.db")
+_DB_PATH = Path("reports.db")
 
 
 def _conn() -> sqlite3.Connection:

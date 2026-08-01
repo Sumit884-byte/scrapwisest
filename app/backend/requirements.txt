@@ -11,3 +11,10 @@ fastapi
 uvicorn[standard]
 
 langchain-mistralai
+
+numpy
+tensorflow
+
+pillow
+
+python-multipart

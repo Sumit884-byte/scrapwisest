@@ -15,7 +15,12 @@ from __future__ import annotations
 import statistics
 from dataclasses import dataclass
 
-from app.backend.agent_schemas.report import MaterialType, PriceReport
+from app.backend.schemas.report import MaterialType, PriceReport
+import app.backend.store as store
+
+
+def _trusted_reports() -> list[PriceReport]:
+    return [r for r in store.all_reports() if not r.needs_confirmation]
 
 # Minimum report counts before a tier is considered reliable on its own
 MIN_LOCAL = 5
@@ -113,3 +118,13 @@ def estimate(
         local_report_count=n_local,
         city_report_count=n_city,
     )
+
+def estimate_price(material_str: str, location: str) -> PriceEstimate | dict:
+    """Estimate scrap price per kg for a material in a location."""
+    try:
+        material = MaterialType(material_str.lower())
+    except ValueError:
+        return {"error": f"unknown material '{material_str}'. Known: {[m.value for m in MaterialType]}"}
+
+    return estimate(material, location, _trusted_reports())
+    

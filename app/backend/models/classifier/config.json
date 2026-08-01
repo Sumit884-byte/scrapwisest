@@ -1,0 +1,17 @@
+{
+  "class_names": [
+    "cardboard",
+    "glass",
+    "metal",
+    "paper",
+    "plastic",
+    "trash"
+  ],
+  "img_size": [
+    224,
+    224
+  ],
+  "open_set_threshold": 0.35,
+  "model_path": "scrapsense_export/scrapsense_model.keras",
+  "notes": "Frozen-backbone EfficientNetB0 head only. Fine-tuning and class weighting were both tested and did not improve on this config at this dataset size \u2014 see the model selection summary in Section 8."
+}
