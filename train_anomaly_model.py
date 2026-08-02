@@ -7,7 +7,7 @@ import json
 import statistics
 from pathlib import Path
 
-from app.backend.ml_anomaly_model import train
+from backend.ml_anomaly_model import train
 
 raw = json.loads(Path("synthethic_report.json").read_text(encoding="utf-8"))
 

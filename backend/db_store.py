@@ -5,10 +5,13 @@ Serializes each PriceReport as JSON — avoids schema migrations as the model ev
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from pathlib import Path
 
-from app.backend.agent_schemas.report import PriceReport
+from backend.schemas.report import PriceReport
+
+logger = logging.getLogger(__name__)
 
 _DB_PATH = Path("reports.db")
 
@@ -24,9 +27,19 @@ def _conn() -> sqlite3.Connection:
 def add(report: PriceReport) -> None:
     with _conn() as con:
         con.execute("INSERT INTO reports VALUES (?)", (report.model_dump_json(),))
+    logger.info(
+        "Saved report to store: material=%s quantity=%.2fkg price_per_kg=%.2f location=%s",
+        report.material_type.value,
+        report.quantity_kg,
+        report.price_paid_pkr_per_kg,
+        report.location,
+    )
 
 
 def all_reports() -> list[PriceReport]:
     con = _conn()
     rows = con.execute("SELECT data FROM reports").fetchall()
-    return [PriceReport.model_validate_json(r[0]) for r in rows]
+    reports = [PriceReport.model_validate_json(r[0]) for r in rows]
+    logger.debug("Fetched %d reports from store (%s)", len(reports), _DB_PATH)
+    return reports
+

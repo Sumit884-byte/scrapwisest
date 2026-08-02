@@ -14,14 +14,21 @@ so you hit the training threshold much sooner.
 
 from __future__ import annotations
 
+import logging
 import pickle
 from pathlib import Path
 
 import numpy as np
 from sklearn.ensemble import IsolationForest
 
+logger = logging.getLogger(__name__)
+
 MIN_REPORTS_TO_TRAIN = 50  # below this, an Isolation Forest is just noise
-MODEL_PATH = Path("models/isolation_forest.pkl")
+_BASE_DIR = Path(__file__).resolve().parent
+_PACKAGE_MODEL_PATH = _BASE_DIR / "models" / "isolation_forest.pkl"
+_CWD_MODEL_PATH = Path("models/isolation_forest.pkl")
+
+MODEL_PATH = _PACKAGE_MODEL_PATH if _PACKAGE_MODEL_PATH.exists() else _CWD_MODEL_PATH
 
 # Tuned on 320 synthetic reports (see anomaly_model_analysis.ipynb):
 # precision 1.00 / recall 0.89 / f1 0.94 on the anomaly class.
@@ -38,7 +45,7 @@ def _features(price_per_kg: float, quantity_kg: float, material_median: float) -
     return [price_ratio, np.log1p(quantity_kg)]
 
 
-def train(reports: list[dict]) -> IsolationForest | None:
+def train_ml_model(reports: list[dict]) -> IsolationForest | None:
     """
     reports: list of dicts with keys price_paid_pkr_per_kg, quantity_kg,
     material_median (that material's recent median at the time of the report).
@@ -48,8 +55,14 @@ def train(reports: list[dict]) -> IsolationForest | None:
     check's 'not enough history' fallback.
     """
     if len(reports) < MIN_REPORTS_TO_TRAIN:
+        logger.info(
+            "Insufficient reports to train Isolation Forest (%d/%d required)",
+            len(reports),
+            MIN_REPORTS_TO_TRAIN,
+        )
         return None
 
+    logger.info("Training Isolation Forest on %d reports...", len(reports))
     X = np.array(
         [
             _features(r["price_paid_pkr_per_kg"], r["quantity_kg"], r["material_median"])
@@ -67,22 +80,35 @@ def train(reports: list[dict]) -> IsolationForest | None:
     MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(MODEL_PATH, "wb") as f:
         pickle.dump(model, f)
+    logger.info("Isolation Forest successfully trained and saved to %s", MODEL_PATH)
     return model
 
 
-def load() -> IsolationForest | None:
+def load_ml_model() -> IsolationForest | None:
     if not MODEL_PATH.exists():
+        logger.info("No Isolation Forest model found at %s", MODEL_PATH)
         return None
     with open(MODEL_PATH, "rb") as f:
-        return pickle.load(f)
+        model = pickle.load(f)
+        logger.info("Isolation Forest anomaly model loaded from %s", MODEL_PATH)
+        return model
 
 
-def score(
+def ml_score(
     model: IsolationForest, price_per_kg: float, quantity_kg: float, material_median: float
 ) -> tuple[bool, float]:
     """Returns (is_anomalous, raw_score). More negative raw_score = more
     anomalous, per sklearn's convention."""
-    X = np.array([_features(price_per_kg, quantity_kg, material_median)])
+    feat = _features(price_per_kg, quantity_kg, material_median)
+    X = np.array([feat])
     prediction = model.predict(X)[0]  # -1 = anomaly, 1 = normal
-    raw_score = model.score_samples(X)[0]
-    return bool(prediction == -1), float(raw_score)
+    raw_score = float(model.score_samples(X)[0])
+    is_anom = bool(prediction == -1)
+    logger.info(
+        "ML anomaly score calculated: features=%s, raw_score=%.4f, prediction=%s (is_anomalous=%s)",
+        feat,
+        raw_score,
+        "anomaly (-1)" if is_anom else "normal (+1)",
+        is_anom,
+    )
+    return is_anom, raw_score

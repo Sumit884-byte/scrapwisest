@@ -15,13 +15,32 @@ import json
 import logging
 from pathlib import Path
 
-import anthropic
 
-from app.backend import ml_classifier_model
+from backend import ml_classifier_model
+
+from pathlib import Path
+from dotenv import load_dotenv
+
+_ROOT_DIR = Path(__file__).resolve().parent.parent
+_BACKEND_DIR = Path(__file__).resolve().parent
+load_dotenv(_BACKEND_DIR / ".env")
+load_dotenv(_ROOT_DIR / ".env")
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-ANTHROPIC_MODEL = "claude-sonnet-4-6"
+from langchain_google_genai import ChatGoogleGenerativeAI
+
+model = ChatGoogleGenerativeAI(
+    model="gemini-3.6-flash",
+    temperature=1.0,  # Gemini 3.0+ defaults to 1.0
+    max_tokens=None,
+    timeout=None,
+    max_retries=2,
+    # other params...
+)
+
+
 LLM_CACHE_PATH = Path("data/vision_llm_cache.json")
 ACTIVE_LEARNING_LOG_PATH = Path("data/active_learning_log.csv")
 
@@ -58,9 +77,10 @@ def classify_with_vision_llm(image_path: str, known_classes: list) -> dict:
     abs_path = str(Path(image_path).resolve())
     cache = _load_cache()
     if abs_path in cache:
+        logger.info("Vision LLM cache hit for image: %s -> %s", abs_path, cache[abs_path])
         return cache[abs_path]
 
-    client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
+    logger.info("Invoking Vision LLM fallback for low-confidence image: %s", abs_path)
     prompt = (
         "You are helping classify a waste material for a recycling sorting system. "
         f"Known categories are: {', '.join(known_classes)}. "
@@ -69,10 +89,8 @@ def classify_with_vision_llm(image_path: str, known_classes: list) -> dict:
         "Respond with ONLY a JSON object of the form "
         '{"category": "<name>", "confidence": <float between 0 and 1>} and nothing else.'
     )
-    response = client.messages.create(
-        model=ANTHROPIC_MODEL,
-        max_tokens=200,
-        messages=[{
+    response = model.invoke([
+        {
             "role": "user",
             "content": [
                 {
@@ -90,8 +108,9 @@ def classify_with_vision_llm(image_path: str, known_classes: list) -> dict:
     text = "".join(b.text for b in response.content if b.type == "text").strip()
     try:
         result = json.loads(text)
+        logger.info("Vision LLM returned classification: %s", result)
     except json.JSONDecodeError:
-        logger.warning("Vision LLM returned non-JSON output, defaulting to unknown")
+        logger.warning("Vision LLM returned non-JSON output ('%s'), defaulting to unknown", text)
         result = {"category": "unknown", "confidence": 0.0}
 
     cache[abs_path] = result
@@ -110,27 +129,50 @@ def log_unknown_example(image_path: str, llm_label: str, llm_confidence: float) 
             image_path, llm_label, llm_confidence,
             datetime.datetime.now().isoformat(timespec="seconds"),
         ])
+    logger.info(
+        "Logged active-learning sample to %s: label='%s', confidence=%.2f",
+        ACTIVE_LEARNING_LOG_PATH,
+        llm_label,
+        llm_confidence,
+    )
 
+
+DEFAULT_CLASSES = [
+    "plastic_pet", "plastic_hdpe", "glass", "metal_aluminum",
+    "metal_steel", "cardboard", "mixed_paper", "other"
+]
 
 def classify_image(image_path: str) -> dict:
     """Entry point the orchestrator calls: photo -> material classification."""
+    global _bundle
+    logger.info("Starting image classification pipeline for: %s", image_path)
     if _bundle is None:
+        _bundle = ml_classifier_model.load()
+
+    if _bundle is None:
+        logger.warning("Classifier model bundle is None. Falling back directly to Vision LLM...")
+        llm_result = classify_with_vision_llm(image_path, DEFAULT_CLASSES)
+        log_unknown_example(image_path, llm_result.get("category", "unknown"), llm_result.get("confidence", 0.0))
         return {
-            "error": (
-                "Classifier model not found. Place scrapsense_model.keras and "
-                "config.json under models/classifier/."
-            )
+            "material_type": llm_result.get("category", "other"),
+            "confidence": llm_result.get("confidence", 0.7),
+            "source": "vision_llm",
         }
 
     label, confidence = ml_classifier_model.predict(_bundle, image_path)
 
     if label == "unknown":
+        logger.info("CNN outcome was unknown/low confidence. Triggering Vision LLM fallback...")
         llm_result = classify_with_vision_llm(image_path, _bundle.class_names)
         log_unknown_example(image_path, llm_result["category"], llm_result["confidence"])
-        return {
+        res = {
             "material_type": llm_result["category"],
             "confidence": llm_result["confidence"],
             "source": "vision_llm",
         }
+        logger.info("Classification completed via Vision LLM fallback: %s", res)
+        return res
 
-    return {"material_type": label, "confidence": confidence, "source": "cnn"}
+    res = {"material_type": label, "confidence": confidence, "source": "cnn"}
+    logger.info("Classification completed via CNN model: %s", res)
+    return res

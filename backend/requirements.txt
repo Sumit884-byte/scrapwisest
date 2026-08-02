@@ -18,3 +18,5 @@ tensorflow
 pillow
 
 python-multipart
+
+langchain-google-genai

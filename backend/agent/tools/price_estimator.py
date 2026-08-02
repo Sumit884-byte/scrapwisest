@@ -12,11 +12,14 @@ it contributes proportionally alongside city-wide rather than being ignored.
 
 from __future__ import annotations
 
+import logging
 import statistics
 from dataclasses import dataclass
 
-from app.backend.schemas.report import MaterialType, PriceReport
-import app.backend.store as store
+from backend.schemas.report import MaterialType, PriceReport
+import backend.db_store as store
+
+logger = logging.getLogger(__name__)
 
 
 def _trusted_reports() -> list[PriceReport]:
@@ -61,6 +64,7 @@ def estimate(
     location  — neighborhood name (matched against report.location)
     reports   — trusted reports for this city (anomaly-cleared; caller pre-filters by city)
     """
+    logger.info("Calculating price estimate for material='%s' location='%s'", material.value, location)
     relevant = [
         r for r in reports
         if r.material_type == material and not r.needs_confirmation
@@ -109,7 +113,7 @@ def estimate(
         conf  = 0.20
         tier  = "seed"
 
-    return PriceEstimate(
+    res = PriceEstimate(
         material_type=material,
         location=location,
         estimated_price_per_kg=round(price, 2),
@@ -118,13 +122,25 @@ def estimate(
         local_report_count=n_local,
         city_report_count=n_city,
     )
+    logger.info(
+        "Price estimate result: material='%s' location='%s' -> price=%.2f PKR/kg, confidence=%.3f, tier='%s' (n_local=%d, n_city=%d)",
+        material.value,
+        location,
+        res.estimated_price_per_kg,
+        res.confidence,
+        res.tier_used,
+        res.local_report_count,
+        res.city_report_count,
+    )
+    return res
 
 def estimate_price(material_str: str, location: str) -> PriceEstimate | dict:
     """Estimate scrap price per kg for a material in a location."""
+    logger.info("Tool 'estimate_price' called: material_str='%s', location='%s'", material_str, location)
     try:
         material = MaterialType(material_str.lower())
     except ValueError:
+        logger.warning("Tool 'estimate_price' failed: unknown material '%s'", material_str)
         return {"error": f"unknown material '{material_str}'. Known: {[m.value for m in MaterialType]}"}
 
     return estimate(material, location, _trusted_reports())
-    

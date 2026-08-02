@@ -1,8 +1,7 @@
 """
-Report-to-verdict pipeline for ScrapSense -- one graph, not two.
+Report-to-verdict pipeline for ScrapSense
 
-Previously this was two separate LangGraph graphs wired together by hand
-(process_report() -> check_anomaly()). Now it's a single graph:
+it's a single graph:
 
     START -> extract_report -> validate_and_build --+--> deterministic_check --+--> ml_check --+--> llm_check --> END
                                                       |                        |                |
@@ -14,16 +13,27 @@ If intake flags the report for picker confirmation (missing/unclear fields,
 low confidence, price outside its sanity band), the graph stops there --
 there's no point running anomaly detection against numbers that aren't
 trustworthy yet. Only a cleanly-validated report moves on to the
-deterministic / ML / LLM anomaly tiers, same three-tier logic as before.
+deterministic / ML / LLM anomaly tiers, the three-tier logic.
 
 """
 
 from __future__ import annotations
 
 import logging
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+_ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent
+_BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
+load_dotenv(_BACKEND_DIR / ".env")
+load_dotenv(_ROOT_DIR / ".env")
+load_dotenv()
+
 import statistics
 from datetime import datetime, timezone
 from typing import Optional
+from collections import defaultdict
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -32,30 +42,27 @@ from langgraph.graph import StateGraph, START, END, MessagesState
 from langchain.chat_models import init_chat_model
 from deepagents import CompiledSubAgent
 
-from app.backend.schemas.report import MaterialType, RawExtraction, PriceReport, LLMJudgment, AnomalyVerdict
+from backend.schemas.report import MaterialType, RawExtraction, PriceReport, LLMJudgment, AnomalyVerdict
+from backend.ml_anomaly_model import ml_score, load_ml_model, train_ml_model
+import backend.db_store as store
 
-from app.backend.ml_anomaly_model import score as ml_score, load as load_ml_model, train as train_ml_model
+from dotenv import load_dotenv
+load_dotenv()
+
 
 logger = logging.getLogger(__name__)
 
-from collections import defaultdict
-
-import app.backend.store as store
-
-
 
 # --- load ML model ----
-
 ml_model = load_ml_model()
 
 
 # ---- reports fetched from DB ----
-
 def _trusted_reports() -> list[PriceReport]:
     return [r for r in store.all_reports() if not r.needs_confirmation]
 
-# ----- retrain the model -----
 
+# ----- retrain the model -----
 def retrain() -> bool:
     global ml_model
     trusted = _trusted_reports()
@@ -75,9 +82,6 @@ def retrain() -> bool:
     if model:
         ml_model = model
     return model is not None
-
-
-
 
 # ------
 # config
@@ -163,7 +167,6 @@ Message: "{message}"
 
 # ------- node 1 -------
 
-
 def extract_report(state: PipelineState) -> dict:
     """Single LLM call: raw text -> structured (but not yet validated) fields."""
 
@@ -200,7 +203,6 @@ def extract_report(state: PipelineState) -> dict:
 
 
 # ------ node 2 --------
-
 
 def validate_and_build(state: PipelineState) -> dict:
     """Deterministic pass: no LLM call. Just rules and arithmetic."""
@@ -276,7 +278,9 @@ def route_after_validation(state: PipelineState) -> str:
     """Only score for anomalies once a report is trustworthy. A report that
     needs picker confirmation doesn't have numbers worth checking yet."""
     if state["price_report"].needs_confirmation:
+        logger.info("Routing after validation -> 'end' (report needs picker confirmation)")
         return "end"
+    logger.info("Routing after validation -> 'deterministic_check'")
     return "deterministic_check"
 
 
@@ -285,54 +289,64 @@ def route_after_validation(state: PipelineState) -> str:
 # ----------------
 
 
-
 def _deterministic_check(
     report: PriceReport, recent_prices_per_kg: list[float]
 ) -> AnomalyVerdict:
 
-    logger.info("checking anomaly deterministically")
+    logger.info(
+        "Deterministic check running for %s @ %.2f PKR/kg (history count=%d)",
+        report.material_type.value,
+        report.price_paid_pkr_per_kg,
+        len(recent_prices_per_kg),
+    )
     if len(recent_prices_per_kg) < MIN_REPORTS_FOR_BASELINE:
-        return AnomalyVerdict(
+        verdict = AnomalyVerdict(
             is_anomalous=False,
             reason="not enough regional history yet -- accepted by default",
             method="deterministic",
         )
+        logger.info("Deterministic check result: %s", verdict)
+        return verdict
 
     median = statistics.median(recent_prices_per_kg)
     price = report.price_paid_pkr_per_kg
 
     if price < median * LOW_RATIO:
-        return AnomalyVerdict(
+        verdict = AnomalyVerdict(
             is_anomalous=True,
             reason=f"price/kg ({price:.0f}) is under half the recent median ({median:.0f})",
             method="deterministic",
         )
-    if price > median * HIGH_RATIO:
-        return AnomalyVerdict(
+    elif price > median * HIGH_RATIO:
+        verdict = AnomalyVerdict(
             is_anomalous=True,
             reason=f"price/kg ({price:.0f}) is over double the recent median ({median:.0f})",
             method="deterministic",
         )
-    return AnomalyVerdict(
-        is_anomalous=False,
-        reason=f"within normal range of recent median ({median:.0f})",
-        method="deterministic",
-    )
+    else:
+        verdict = AnomalyVerdict(
+            is_anomalous=False,
+            reason=f"within normal range of recent median ({median:.0f})",
+            method="deterministic",
+        )
+    logger.info("Deterministic check result: %s", verdict)
+    return verdict
 
 
 def _ml_check(report: PriceReport, ml_model, material_median: float) -> AnomalyVerdict:
-    logger.info("ML check of anomaly")
+    logger.info("ML check running for %s with median=%.2f", report.material_type.value, material_median)
     is_anom, raw_score = ml_score(
         ml_model, report.price_paid_pkr_per_kg, report.quantity_kg, material_median
     )
 
-
-    return AnomalyVerdict(
+    verdict = AnomalyVerdict(
         is_anomalous=is_anom,
         reason=f"isolation forest flagged this price/quantity combination (score {raw_score:.3f})",
         method="ml",
         confidence=min(1.0, abs(raw_score) * 2),
     )
+    logger.info("ML check result: %s", verdict)
+    return verdict
 
 
 LLM_JUDGE_PROMPT = """A waste picker submitted a scrap sale report that one \
@@ -354,7 +368,7 @@ reason, or fits a pattern with no real-world explanation.
 def _llm_check(
     report: PriceReport, recent_prices_per_kg: list[float], flag_reasons: str
 ) -> AnomalyVerdict:
-    logger.info("llm judgement of anomaly")
+    logger.info("LLM judgment check running: flag_reasons='%s'", flag_reasons)
     prompt = LLM_JUDGE_PROMPT.format(
         material=report.material_type.value,
         quantity=report.quantity_kg,
@@ -364,13 +378,14 @@ def _llm_check(
         flag_reasons=flag_reasons,
     )
     judgment: LLMJudgment = _structured_llm_judge.invoke(prompt)
-    return AnomalyVerdict(
+    verdict = AnomalyVerdict(
         is_anomalous=judgment.is_anomalous,
         reason=judgment.reason,
         method="llm",
         confidence=judgment.confidence,
     )
-
+    logger.info("LLM judgment check result: %s", verdict)
+    return verdict
 
 # ----------------------------
 # shared helpers (dedup'd bits)
@@ -398,8 +413,16 @@ def _finalize(price_report: PriceReport, verdict: AnomalyVerdict, message: str) 
     """Single place a report is ever written to the trusted store -- only once
     the pipeline has reached its actual terminal verdict, never at an
     intermediate tier that might still get overridden by a later tier."""
+    logger.info(
+        "Finalizing pipeline run: is_anomalous=%s, method='%s', message='%s'",
+        verdict.is_anomalous,
+        verdict.method,
+        message,
+    )
     if not verdict.is_anomalous:
         store.add(price_report)
+    else:
+        logger.warning("Report flagged as anomalous by %s check; not storing.", verdict.method)
     return {
         "verdict": verdict,
         "messages": [{"role": "assistant", "content": message}],
@@ -425,13 +448,14 @@ def deterministic_check_node(state: PipelineState) -> dict:
 def ml_check_node(state: PipelineState) -> dict:
     price_report = state["price_report"]
     recent = _recent_prices_for(price_report)
-    median = statistics.median(recent)
+    median = statistics.median(recent) if recent else 0.0
     result = _ml_check(price_report, ml_model, median)
     return {"ml_result": result}
 
 
 
 # ----- node 3 -----
+
 def llm_check_node(state: PipelineState) -> dict:
     price_report = state["price_report"]
     recent = _recent_prices_for(price_report)
@@ -470,20 +494,26 @@ def route_after_deterministic(state: PipelineState) -> str:
     price_report = state["price_report"]
     have_enough_history = len(_recent_prices_for(price_report)) >= MIN_REPORTS_FOR_BASELINE
     if ml_model is not None and have_enough_history:
+        logger.info("Routing after deterministic check -> 'ml_check'")
         return "ml_check"
     if USE_LLM_REASONING and state["deterministic_result"].is_anomalous:
+        logger.info("Routing after deterministic check -> 'llm_check'")
         return "llm_check"
+    logger.info("Routing after deterministic check -> 'accept'")
     return "accept"
 
 
 def route_after_ml(state: PipelineState) -> str:
     flagged = state["deterministic_result"].is_anomalous or state["ml_result"].is_anomalous
-    return "llm_check" if (USE_LLM_REASONING and flagged) else "accept"
+    target = "llm_check" if (USE_LLM_REASONING and flagged) else "accept"
+    logger.info("Routing after ML check (flagged=%s) -> '%s'", flagged, target)
+    return target
 
 
-# ===========================================================================
-# one graph
-# ===========================================================================
+
+# ------------
+#  build graph
+# ------------
 
 def build_pipeline():
     graph = StateGraph(PipelineState)
