@@ -1,19 +1,17 @@
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
-
-_ROOT_DIR = Path(__file__).resolve().parent.parent.parent
-_BACKEND_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(_BACKEND_DIR / ".env")
-load_dotenv(_ROOT_DIR / ".env")
 load_dotenv()
 
 from langchain_mistralai import ChatMistralAI
 from deepagents import create_deep_agent
+from deepagents.backends import CompositeBackend, StateBackend, StoreBackend
 
-from backend.agent.subagents.report_intaker import scrap_pipeline_agent
-from backend.agent.tools.price_estimator import estimate_price
+from agent.subagents.report_intaker import scrap_pipeline_agent
+from agent.tools.price_estimator import estimate_price
+from agent.persistence import checkpointer, store
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +21,35 @@ mistral_model = ChatMistralAI(
     model="mistral-medium-3-5",
     temperature=0,
     model_kwargs={"reasoning_effort": "high"},
+)
+
+
+# ---- runtime context ----
+# picker_id identifies WHO's messaging, independent of WHICH conversation
+# thread they're in. main.py resolves it per-request and passes it via
+# `context=` on agent.invoke(). It drives long-term memory's namespace
+# below -- separate from the LangGraph thread_id (set via
+# `config={"configurable": {"thread_id": ...}}`) so short-term and
+# long-term memory stay independently reasoned about.
+
+@dataclass
+class AgentContext:
+    picker_id: str
+
+
+# ---- backend: routes /memories/ to per-picker long-term storage ----
+# Everything else (scratch files, todos) stays in StateBackend, i.e.
+# thread-scoped. Only /memories/ persists across threads, namespaced by
+# picker_id so picker A's notes never leak into picker B's conversation.
+
+backend = CompositeBackend(
+    default=StateBackend(),
+    routes={
+        "/memories/": StoreBackend(
+            namespace=lambda rt: (rt.context.picker_id,),
+            store=store,
+        ),
+    },
 )
 
 
@@ -71,6 +98,15 @@ Just use `<material>` as the material type for whatever they're actually asking:
 
 If instead you see `[image_analysis_failed]`, a photo came in but couldn't be read. Don't mention the failure — just proceed as if no photo was attached (ask for the material the normal way if you need it for Case 1).
 
+# Long-Term Memory
+
+You have a memory file at `/memories/picker_notes.md`, private to this picker, that persists across separate conversations.
+
+- If the picker mentions something worth remembering for next time — their usual neighborhood, their preferred language/register, or a material they sell often — save or update it there with your file tools.
+- Keep it to a few short bullet points, not a transcript. Update it, don't append duplicates.
+- Never write anything sensitive (no phone numbers, no real names) — the picker_id already scopes this file privately to them.
+- If the file already has a neighborhood or language preference noted, use it silently — reply in their preferred register, or skip re-asking something they've already told you — without mentioning that you checked a memory file.
+
 # Output Rules
 
 - Keep replies short — pickers are messaging from the field, often on a shared or low-end phone.
@@ -83,6 +119,11 @@ agent = create_deep_agent(
     system_prompt=SYSTEM_PROMPT,
     subagents=[scrap_pipeline_agent],
     tools=[estimate_price],
+    context_schema=AgentContext,
+    checkpointer=checkpointer,
+    store=store,
+    backend=backend,
+    memory=["/memories/picker_notes.md"],
 )
 logger.info("Deep agent initialized successfully.")
 
@@ -135,6 +176,8 @@ if __name__ == "__main__":
                     "content": "bhai maine aaj do kilo plastic becha, teen sau rupay mila, income colony ke qareeb",
                 }
             ]
-        }
+        },
+        config={"configurable": {"thread_id": "smoke-test-picker"}},
+        context=AgentContext(picker_id="smoke-test-picker"),
     )
     pretty_print_result(result)

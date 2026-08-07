@@ -24,10 +24,6 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-_ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent
-_BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
-load_dotenv(_BACKEND_DIR / ".env")
-load_dotenv(_ROOT_DIR / ".env")
 load_dotenv()
 
 import statistics
@@ -42,9 +38,9 @@ from langgraph.graph import StateGraph, START, END, MessagesState
 from langchain.chat_models import init_chat_model
 from deepagents import CompiledSubAgent
 
-from backend.schemas.report import MaterialType, RawExtraction, PriceReport, LLMJudgment, AnomalyVerdict
-from backend.ml_anomaly_model import ml_score, load_ml_model, train_ml_model
-import backend.db_store as store
+from schemas.report import MaterialType, RawExtraction, PriceReport, LLMJudgment, AnomalyVerdict
+from ml_anomaly_model import ml_score, load_ml_model, train_ml_model
+import db_store as store
 
 from dotenv import load_dotenv
 load_dotenv()

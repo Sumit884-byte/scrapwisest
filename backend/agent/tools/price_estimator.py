@@ -16,8 +16,8 @@ import logging
 import statistics
 from dataclasses import dataclass
 
-from backend.schemas.report import MaterialType, PriceReport
-import backend.db_store as store
+from schemas.report import MaterialType, PriceReport
+import db_store as store
 
 logger = logging.getLogger(__name__)
 

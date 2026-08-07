@@ -9,7 +9,7 @@ import logging
 import sqlite3
 from pathlib import Path
 
-from backend.schemas.report import PriceReport
+from schemas.report import PriceReport
 
 logger = logging.getLogger(__name__)
 

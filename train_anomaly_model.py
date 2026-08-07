@@ -7,7 +7,7 @@ import json
 import statistics
 from pathlib import Path
 
-from backend.ml_anomaly_model import train
+from backend.ml_anomaly_model import train_ml_model
 
 raw = json.loads(Path("synthethic_report.json").read_text(encoding="utf-8"))
 
@@ -28,7 +28,7 @@ reports = [
     for r in raw
 ]
 
-model = train(reports)
+model = train_ml_model(reports)
 if model:
     print(f"Trained on {len(reports)} reports. Model saved to models/isolation_forest.pkl")
 else:

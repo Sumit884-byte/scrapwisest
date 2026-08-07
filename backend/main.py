@@ -31,12 +31,6 @@ from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
-
-# Load .env file from root or backend directory before importing agent modules
-_ROOT_DIR = Path(__file__).resolve().parent.parent
-_BACKEND_DIR = Path(__file__).resolve().parent
-load_dotenv(_BACKEND_DIR / ".env")
-load_dotenv(_ROOT_DIR / ".env")
 load_dotenv()
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -45,8 +39,9 @@ from langchain_core.messages import AIMessage
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
-from backend.agent.main_agent import agent
-from backend.material_classifier import classify_image
+from agent.main_agent import agent
+from material_classifier import classify_image
+from agent.main_agent import agent, AgentContext
 
 logging.basicConfig(
     level=logging.INFO,
@@ -156,14 +151,26 @@ def _extract_reply(agent_result: dict) -> str:
 @app.post("/chat", response_model=ChatResponse)
 async def chat(
     message: str = Form(""),
+    picker_id: str = Form(
+        ...,
+        description="Stable per-picker id from the client (e.g. a UUID "
+                     "generated once and persisted on-device). Drives both "
+                     "conversation continuity and cross-session memory.",
+    ),
     image: Optional[UploadFile] = File(None),
 ):
     text = message.strip()
-    logger.info("=== POST /chat received: text='%s' image=%s", text, image.filename if image else None)
+    logger.info(
+        "=== POST /chat received: picker_id='%s' text='%s' image=%s",
+        picker_id, text, image.filename if image else None,
+    )
 
     if not text and image is None:
         logger.warning("Rejected /chat request: neither text nor image was provided.")
         raise HTTPException(status_code=400, detail="Provide a message, an image, or both.")
+
+    agent_config = {"configurable": {"thread_id": picker_id}}
+    agent_context = AgentContext(picker_id=picker_id)
 
 
     # ---- No image: unchanged text-only path ----
@@ -171,7 +178,10 @@ async def chat(
         logger.info("Path A: Text-only request. Invoking deep agent...")
         try:
             agent_result = await asyncio.to_thread(
-                agent.invoke, {"messages": [{"role": "user", "content": text}]}
+                agent.invoke,
+                {"messages": [{"role": "user", "content": text}]},
+                config=agent_config,
+                context=agent_context,
             )
         except Exception:
             logger.exception("Agent invocation failed for text-only path")
@@ -179,7 +189,6 @@ async def chat(
 
         reply = _extract_reply(agent_result)
         logger.info("Deep agent reply extracted: '%s'", reply)
-    
         return ChatResponse(reply=reply)
 
     # ---- Image attached: classify deterministically, in code, first ----
@@ -219,7 +228,10 @@ async def chat(
 
     try:
         agent_result = await asyncio.to_thread(
-            agent.invoke, {"messages": [{"role": "user", "content": augmented_content}]}
+            agent.invoke,
+            {"messages": [{"role": "user", "content": augmented_content}]},
+            config=agent_config,
+            context=agent_context,
         )
     except Exception:
         logger.exception("Agent invocation failed for photo+text path")

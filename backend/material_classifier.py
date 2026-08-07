@@ -16,7 +16,7 @@ import logging
 from pathlib import Path
 
 
-from backend import ml_classifier_model
+import ml_classifier_model
 
 from pathlib import Path
 from dotenv import load_dotenv
