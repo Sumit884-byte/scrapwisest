@@ -14,9 +14,14 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
-import numpy as np
-from tensorflow import keras
-from tensorflow.keras.applications.efficientnet import preprocess_input
+try:
+    import numpy as np
+    from tensorflow import keras
+    from tensorflow.keras.applications.efficientnet import preprocess_input
+except ImportError:  # MVP API deploy does not require TensorFlow
+    np = None
+    keras = None
+    preprocess_input = None
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +46,9 @@ class ClassifierBundle:
 
 def load() -> ClassifierBundle | None:
     """Load the trained model + its config. Returns None if not exported yet."""
+    if keras is None:
+        logger.info("TensorFlow is not installed — CNN classifier disabled.")
+        return None
     if not MODEL_PATH.exists() or not CONFIG_PATH.exists():
         logger.info("Classifier model or config missing at %s / %s", MODEL_PATH, CONFIG_PATH)
         return None

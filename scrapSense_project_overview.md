@@ -124,7 +124,7 @@ There's no existing dataset for "fair scrap prices by material and region" — i
 - **ML:** PyTorch (CNN), scikit-learn (Isolation Forest)
 - **Frontend:** plain HTML/JS, voice-first given the literacy/connectivity constraints
 - **Data:** structured JSON/DB — seed prices, accumulated reports
-- **LLM layer:** Kimi-K2.6 via Azure AI (primary), Mistral `mistral-medium-3-5` (fallback, reasoning_effort=high), Gemini `gemini-2.5-flash-lite` (agent structured-output calls)
+- **LLM layer:** Nemotron on Nebius Token Factory — Nano (sale extraction), Super (picker copilot + tools), Ultra (anomaly judgment only)
 
 ---
 
@@ -139,18 +139,14 @@ There's no existing dataset for "fair scrap prices by material and region" — i
 
 ## 9. What's Already Built (as of this document)
 
-- ✅ `agents/report_intake.py` — LLM extraction (Gemini structured output) + deterministic validation; LangGraph graph; entry point `process_report(message, reported_by)`
-- ✅ `agents/anomaly_detect.py` — three-tier detection (deterministic / Isolation Forest / LLM judge), LangGraph graph, `USE_LLM_REASONING` toggle; entry point `check_anomaly(report, recent_prices, ml_model)`
-- ✅ `ml_anomaly_model.py` — Isolation Forest train/load/score; price-ratio normalization lets one model pool across all materials
-- ✅ `agent_schemas/report.py` — `MaterialType` enum, `RawExtraction`, `PriceReport` Pydantic models
-- ✅ `chat_model.py` — three model instances: Kimi-K2.6 (Azure AI, primary), Mistral `mistral-medium-3-5` (fallback), Gemini `gemini-2.5-flash-lite` (used by agents)
-- ✅ `state.py` — `MessagesState` TypedDict (message, reported_by, price_report)
-- ✅ `synthethic_report.json` — 300+ labeled synthetic reports (normal + anomaly variants) across 5 Multan neighborhoods; ready to seed the price estimator and train the Isolation Forest
-- ⬜ `price_estimator_agent.py` — **next to build**; fallback chain: local reports → city-wide → seed price, blended by data volume
-- ⬜ Classifier agent — stub only; no CNN trained yet
-- ⬜ `supervisor.py` — empty; orchestrator not yet built
-- ⬜ Real data store — currently in-memory mock; needs a persistent backend before field testing
-- ⬜ Frontend — not started
+- ✅ `backend/agent/nemotron.py` — Token Factory routing: Nano / Super / Ultra
+- ✅ `backend/agent/main_agent.py` — Super copilot (deep agent) + per-picker memory
+- ✅ `backend/agent/subagents/report_intaker.py` — Nano extraction + three-tier anomaly; Ultra only when flagged
+- ✅ `backend/agent/tools/price_estimator.py` — local → city → seed fallback (no LLM)
+- ✅ `backend/jobs/retrain_anomaly.py` — Nebius Serverless Job entrypoint
+- ✅ Voice + photo chat UI (`frontend/`)
+- ⬜ CNN classifier weights in the default deploy (optional via `requirements-ml.txt`)
+- ⬜ Forecasting model / reporter-trust agent (post-MVP)
 
 ---
 

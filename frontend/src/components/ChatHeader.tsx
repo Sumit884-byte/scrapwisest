@@ -27,7 +27,7 @@ export function ChatHeader({ backendStatus }: Props) {
           <div>
             <h1 className="text-base font-semibold leading-tight text-slate-900">ScrapSense</h1>
             <p className="text-[11px] leading-tight text-slate-500">
-              Scrap prices, made fair · ری سائیکلنگ کی قیمتیں
+              Your scrap-price copilot · ری سائیکلنگ کی قیمتیں
             </p>
           </div>
         </div>

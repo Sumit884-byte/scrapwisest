@@ -20,30 +20,22 @@ deterministic / ML / LLM anomaly tiers, the three-tier logic.
 from __future__ import annotations
 
 import logging
-import os
-from pathlib import Path
-from dotenv import load_dotenv
+from collections import defaultdict
+from datetime import datetime, timezone
+from typing import Optional
 
+from dotenv import load_dotenv
 load_dotenv()
 
 import statistics
-from datetime import datetime, timezone
-from typing import Optional
-from collections import defaultdict
-
-from dotenv import load_dotenv
-load_dotenv()
 
 from langgraph.graph import StateGraph, START, END, MessagesState
-from langchain.chat_models import init_chat_model
 from deepagents import CompiledSubAgent
 
 from schemas.report import MaterialType, RawExtraction, PriceReport, LLMJudgment, AnomalyVerdict
 from ml_anomaly_model import ml_score, load_ml_model, train_ml_model
+from agent.nemotron import nano_model, ultra_model
 import db_store as store
-
-from dotenv import load_dotenv
-load_dotenv()
 
 
 logger = logging.getLogger(__name__)
@@ -114,9 +106,24 @@ MIN_REPORTS_FOR_BASELINE = 3  # need at least this many recent reports to judge
 # model
 # -----
 
-gemini_model = init_chat_model("google_genai:gemini-3.6-flash")
-_structured_extraction_model = gemini_model.with_structured_output(RawExtraction)
-_structured_llm_judge = gemini_model.with_structured_output(LLMJudgment)
+# Nano: high-volume extraction. Ultra: only when cheaper anomaly tiers fire.
+# Built on first use so the retrain job can import this module without a key.
+_structured_extraction_model = None
+_structured_llm_judge = None
+
+
+def _extraction_model():
+    global _structured_extraction_model
+    if _structured_extraction_model is None:
+        _structured_extraction_model = nano_model().with_structured_output(RawExtraction)
+    return _structured_extraction_model
+
+
+def _judge_model():
+    global _structured_llm_judge
+    if _structured_llm_judge is None:
+        _structured_llm_judge = ultra_model().with_structured_output(LLMJudgment)
+    return _structured_llm_judge
 
 
 # -----------
@@ -174,7 +181,7 @@ def extract_report(state: PipelineState) -> dict:
     )
 
     try:
-        raw_extraction = _structured_extraction_model.invoke(
+        raw_extraction = _extraction_model().invoke(
             [{"role": "user", "content": prompt}]
         )
         if raw_extraction is None:
@@ -373,7 +380,7 @@ def _llm_check(
         recent_prices=recent_prices_per_kg,
         flag_reasons=flag_reasons,
     )
-    judgment: LLMJudgment = _structured_llm_judge.invoke(prompt)
+    judgment: LLMJudgment = _judge_model().invoke(prompt)
     verdict = AnomalyVerdict(
         is_anomalous=judgment.is_anomalous,
         reason=judgment.reason,

@@ -1,0 +1,3 @@
+# Optional CNN classifier. Not needed for the chat/price MVP.
+-r requirements.txt
+tensorflow

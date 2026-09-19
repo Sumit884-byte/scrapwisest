@@ -36,7 +36,7 @@ export function MessageList({ messages, isSending, onRetry, onQuickAction }: Pro
           <div className="max-w-sm space-y-2">
             <h2 className="text-lg font-semibold text-slate-800">Ask before you sell.</h2>
             <p className="text-sm leading-relaxed text-slate-500">
-              Message in English, Urdu, or Roman Urdu — or snap a photo of the material.
+              Your scrap-price copilot. Check a rate or log a sale — English, Urdu, or Roman Urdu.
             </p>
           </div>
           <QuickActions onPick={onQuickAction} disabled={isSending} />

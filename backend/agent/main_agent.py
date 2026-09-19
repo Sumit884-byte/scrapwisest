@@ -1,27 +1,18 @@
 import logging
 from dataclasses import dataclass
-from pathlib import Path
 
 from dotenv import load_dotenv
 load_dotenv()
 
-from langchain_mistralai import ChatMistralAI
 from deepagents import create_deep_agent
 from deepagents.backends import CompositeBackend, StateBackend, StoreBackend
 
+from agent.nemotron import super_model
 from agent.subagents.report_intaker import scrap_pipeline_agent
 from agent.tools.price_estimator import estimate_price
 from agent.persistence import checkpointer, store
 
 logger = logging.getLogger(__name__)
-
-# ---- chat model -----
-
-mistral_model = ChatMistralAI(
-    model="mistral-medium-3-5",
-    temperature=0,
-    model_kwargs={"reasoning_effort": "high"},
-)
 
 
 # ---- runtime context ----
@@ -113,19 +104,27 @@ You have a memory file at `/memories/picker_notes.md`, private to this picker, t
 - Never show the picker raw JSON, `verdict` objects, `PriceEstimate` objects, internal tags, image paths, or internal field names.
 """
 
-logger.info("Initializing ScrapSense deep agent with ChatMistralAI model...")
-agent = create_deep_agent(
-    model=mistral_model,
-    system_prompt=SYSTEM_PROMPT,
-    subagents=[scrap_pipeline_agent],
-    tools=[estimate_price],
-    context_schema=AgentContext,
-    checkpointer=checkpointer,
-    store=store,
-    backend=backend,
-    memory=["/memories/picker_notes.md"],
-)
-logger.info("Deep agent initialized successfully.")
+_agent = None
+
+
+def get_agent():
+    """Build the Super-powered copilot on first chat, not at import time."""
+    global _agent
+    if _agent is None:
+        logger.info("Initializing ScrapSense deep agent with Nemotron Super on Token Factory...")
+        _agent = create_deep_agent(
+            model=super_model(),
+            system_prompt=SYSTEM_PROMPT,
+            subagents=[scrap_pipeline_agent],
+            tools=[estimate_price],
+            context_schema=AgentContext,
+            checkpointer=checkpointer,
+            store=store,
+            backend=backend,
+            memory=["/memories/picker_notes.md"],
+        )
+        logger.info("Deep agent initialized successfully.")
+    return _agent
 
 # ---------------------------------------------------------------------------
 # Manual smoke test. Guarded so importing `agent` (e.g. from the FastAPI app)
@@ -168,7 +167,7 @@ if __name__ == "__main__":
                     print(textwrap.indent(str(msg.content), "  "))
             print()
 
-    result = agent.invoke(
+    result = get_agent().invoke(
         {
             "messages": [
                 {

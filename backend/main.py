@@ -24,13 +24,13 @@ from __future__ import annotations
 
 import asyncio
 import io
-import json
 import logging
 import uuid
 from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parent / ".env")
 load_dotenv()
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -39,9 +39,9 @@ from langchain_core.messages import AIMessage
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
-from agent.main_agent import agent
+from agent.main_agent import AgentContext, get_agent
+from agent.nemotron import routing_info
 from material_classifier import classify_image
-from agent.main_agent import agent, AgentContext
 
 logging.basicConfig(
     level=logging.INFO,
@@ -62,13 +62,35 @@ app.add_middleware(
 UPLOAD_DIR = Path("data/uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+# Serve the Vite build when present so one Nebius Serverless Endpoint can
+# host both the picker UI and /chat.
+_BACKEND_DIR = Path(__file__).resolve().parent
+_STATIC_CANDIDATES = (
+    _BACKEND_DIR / "static",
+    _BACKEND_DIR.parent / "frontend" / "dist",
+)
+for _static in _STATIC_CANDIDATES:
+    index = _static / "index.html"
+    if index.exists():
+        from fastapi.staticfiles import StaticFiles
+        from fastapi.responses import FileResponse
+
+        @app.get("/")
+        def _spa_index():
+            return FileResponse(index)
+
+        assets = _static / "assets"
+        if assets.is_dir():
+            app.mount("/assets", StaticFiles(directory=assets), name="assets")
+        logger.info("Serving frontend from %s", _static)
+        break
+
 MAX_IMAGE_BYTES = 8 * 1024 * 1024  # 8MB
 ALLOWED_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 
 # Friendly labels for the known material types -- used only for the
 # no-agent-invocation path (photo, no text), where there's no LLM around
-# to phrase the reply. Novel labels from the vision-LLM fallback (not in
-# this dict) are shown title-cased as-is.
+# to phrase the reply.
 FRIENDLY_MATERIAL_NAMES: dict[str, tuple[str, str]] = {
     "plastic_pet": ("PET plastic", "پلاسٹک (PET)"),
     "plastic_hdpe": ("HDPE plastic", "پلاسٹک (HDPE)"),
@@ -178,7 +200,7 @@ async def chat(
         logger.info("Path A: Text-only request. Invoking deep agent...")
         try:
             agent_result = await asyncio.to_thread(
-                agent.invoke,
+                get_agent().invoke,
                 {"messages": [{"role": "user", "content": text}]},
                 config=agent_config,
                 context=agent_context,
@@ -228,7 +250,7 @@ async def chat(
 
     try:
         agent_result = await asyncio.to_thread(
-            agent.invoke,
+            get_agent().invoke,
             {"messages": [{"role": "user", "content": augmented_content}]},
             config=agent_config,
             context=agent_context,
@@ -245,4 +267,4 @@ async def chat(
 @app.get("/health")
 def health():
     logger.info("Health check endpoint accessed")
-    return {"status": "ok"}
+    return {"status": "ok", "models": routing_info()}
