@@ -46,13 +46,15 @@ The track brief is the architecture: **Ultra when you need serious reasoning. Na
 | Picker chat, tools, memory | **Nemotron 3 Super** `nvidia/nemotron-3-super-120b-a12b` | Everyday copilot loop |
 | "Is this flagged sale real or junk?" | **Nemotron 3 Ultra** `nvidia/Nemotron-3-Ultra-550b-a55b` | Real judgment, rare |
 
-All three go through Nebius Token Factory (OpenAI-compatible). Nano is on `eu-north1`; Super and Ultra on `us-central1`. Override with env vars if your project is pinned to one region.
+All three go through Nebius Token Factory (OpenAI-compatible). Nano is on `eu-north1`; Super and Ultra on `us-central1`. Override with environment variables if your project is pinned to one region.
 
 ```text
 Picker message
+
       │
       ▼
- Super (everyday) ── price question ──► estimate_price (no LLM)
+
+Super (everyday) ── price question ──► estimate_price (no LLM)
       │
       └── sale report ──► Nano extract ──► rules ──► Isolation Forest
                                                       │
