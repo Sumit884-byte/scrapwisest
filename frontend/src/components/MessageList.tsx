@@ -30,19 +30,19 @@ export function MessageList({ messages, isSending, onRetry, onQuickAction }: Pro
   }, [messages, isSending])
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+    <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-6 lg:px-8">
       {messages.length === 0 ? (
-        <div className="flex h-full flex-col items-center justify-center gap-6 text-center">
-          <div className="max-w-sm space-y-2">
-            <h2 className="text-lg font-semibold text-slate-800">Ask before you sell.</h2>
+        <div className="mx-auto flex h-full w-full max-w-md flex-col items-center justify-center gap-5 text-center sm:max-w-2xl sm:gap-6 lg:max-w-4xl">
+          <div className="max-w-lg space-y-2 px-2">
+            <h2 className="text-lg font-semibold text-slate-800 sm:text-xl">Ask before you sell.</h2>
             <p className="text-sm leading-relaxed text-slate-500">
-              Your scrap-price copilot. Check a rate or log a sale — English, Urdu, or Roman Urdu.
+              Your scrap-price copilot. Check a rate or log a sale — in English, Hindi, or Hinglish.
             </p>
           </div>
           <QuickActions onPick={onQuickAction} disabled={isSending} />
         </div>
       ) : (
-        <div className="mx-auto flex max-w-2xl flex-col gap-3">
+        <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 lg:max-w-3xl">
           {messages.map((message) => (
             <MessageBubble key={message.id} message={message} onRetry={onRetry} />
           ))}

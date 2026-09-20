@@ -1,0 +1,28 @@
+"""
+Health check endpoints: liveness and readiness monitoring.
+"""
+
+from __future__ import annotations
+
+import logging
+from fastapi import APIRouter
+from app.agent.nemotron import routing_info
+from app.core.config import settings
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(tags=["health"])
+
+
+@router.get("/health")
+def health():
+    """
+    Health check endpoint returning system status and LLM model routing details.
+    """
+    logger.info("Health check endpoint accessed")
+    return {
+        "status": "ok",
+        "models": routing_info(),
+        "version": settings.VERSION,
+        "environment": "development" if settings.DEBUG else "production",
+    }

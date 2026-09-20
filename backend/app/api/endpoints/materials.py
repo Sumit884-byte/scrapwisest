@@ -1,0 +1,40 @@
+"""
+Materials metadata endpoint: lists supported material categories, translations, and price bounds.
+"""
+
+from __future__ import annotations
+
+from fastapi import APIRouter
+from app.core.config import settings
+from app.schemas.material import MaterialInfo, MaterialListResponse
+from app.schemas.report import MaterialType
+
+router = APIRouter(prefix="/materials", tags=["materials"])
+
+
+@router.get("", response_model=MaterialListResponse)
+async def get_materials():
+    """
+    List all supported recyclable waste material categories with English and Urdu labels,
+    baseline seed prices, and expected sanity price bands.
+    """
+    items = []
+    for mat in MaterialType:
+        mat_key = mat.value
+        name_en, name_ur = settings.FRIENDLY_MATERIAL_NAMES.get(
+            mat_key, (mat_key.replace("_", " ").title(), "")
+        )
+        seed_price = settings.SEED_PRICES.get(mat_key, 50.0)
+        price_band = settings.PRICE_PER_KG_BANDS.get(mat_key, (5.0, 500.0))
+
+        items.append(
+            MaterialInfo(
+                id=mat_key,
+                name_en=name_en,
+                name_ur=name_ur,
+                seed_price_pkr_per_kg=seed_price,
+                price_band_pkr=price_band,
+            )
+        )
+
+    return MaterialListResponse(materials=items, count=len(items))

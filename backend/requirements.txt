@@ -1,9 +1,10 @@
-langgraph==1.2.7
+langgraph
 langgraph-checkpoint-sqlite
-langchain==1.3.11
+langchain
 deepagents
 pydantic
 pydantic[email]
+pydantic-settings
 python-dotenv
 fastapi
 uvicorn[standard]
@@ -12,3 +13,6 @@ numpy
 pillow
 python-multipart
 scikit-learn
+sqlalchemy
+aiosqlite
+alembic

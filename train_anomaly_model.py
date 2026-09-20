@@ -5,9 +5,14 @@ Run once: python train_anomaly_model.py
 
 import json
 import statistics
+import sys
 from pathlib import Path
 
-from backend.ml_anomaly_model import train_ml_model
+_BACKEND_DIR = Path(__file__).resolve().parent / "backend"
+if str(_BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_DIR))
+
+from app.services.anomaly_detector import train_ml_model
 
 raw = json.loads(Path("synthethic_report.json").read_text(encoding="utf-8"))
 

@@ -1,6 +1,6 @@
-# ScrapSense Frontend
+# Scrapwisest Frontend
 
-Chat client for the ScrapSense FastAPI backend — a price-transparency assistant for waste pickers. Message in English, Urdu, or Roman Urdu, attach a photo of a material, or dictate with the mic.
+Chat client for the Scrapwisest FastAPI backend — a price-transparency assistant for waste pickers. Message in English, Hindi, or Hinglish, attach a photo of a material, or dictate with the mic.
 
 ## Stack
 

@@ -56,14 +56,3 @@ export async function postChat({ text, image, pickerId }: PostChatArgs): Promise
   }
   return (await res.json()) as ChatResponse
 }
-
-export async function pingHealth(): Promise<boolean> {
-  try {
-    const res = await fetch(`${BASE}/health`, { method: 'GET' })
-    if (!res.ok) return false
-    const body = (await res.json()) as { status?: string }
-    return body.status === 'ok'
-  } catch {
-    return false
-  }
-}
