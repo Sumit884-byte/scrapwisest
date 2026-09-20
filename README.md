@@ -46,122 +46,18 @@ The track brief is the architecture: **Ultra when you need serious reasoning. Na
 | Picker chat, tools, memory | **Nemotron 3 Super** `nvidia/nemotron-3-super-120b-a12b` | Everyday copilot loop |
 | "Is this flagged sale real or junk?" | **Nemotron 3 Ultra** `nvidia/Nemotron-3-Ultra-550b-a55b` | Real judgment, rare |
 
-All three go through Nebius Token Factory (OpenAI-compatible). Nano is on `eu-north1`; Super and Ultra on `us-central1`. Override with env vars if your project is pinned to one region.
+All three go through Nebius Token Factory (OpenAI-compatible). Nano is on `eu-north1`; Super and Ultra on `us-central1`. Override with environment variables if your project is pinned to one region.
 
-```
+```text
 Picker message
+
       │
       ▼
- Super (everyday) ── price question ──► estimate_price (no LLM)
+
+Super (everyday) ── price question ──► estimate_price (no LLM)
       │
       └── sale report ──► Nano extract ──► rules ──► Isolation Forest
-                                                      │
-                                              flagged? ── yes ──► Ultra judge
-                                                      │
-                                                     no ──► store + confirm
-```
-
----
-
-## Quick start
-
-You need a [Token Factory](https://tokenfactory.nebius.com) API key.
-
-```bash
-cp .env.example backend/.env
-# put NEBIUS_API_KEY in backend/.env
-
-cd backend
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn main:app --port 8000
-```
-
-In another terminal:
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Open [http://localhost:5173](http://localhost:5173).
-
-Optional CNN (photo helper only):
-
-```bash
-pip install -r backend/requirements-ml.txt
-```
-
-### Try it
-
-- `plastic ka rate kya hai`
-- `maine 2 kilo plastic becha, 300 rupay mile, income colony ke qareeb`
-- Attach a photo, or speak with the mic
-
-`GET /health` returns the live Nano / Super / Ultra map.
-
----
-
-## CI/CD
-
-GitHub Actions (`.github/workflows/ci.yml`) runs on every push and pull request to `main`:
-
-1. **Backend** — `pytest` (price estimator, health, model routing). No API key required.
-2. **Frontend** — `oxlint` + production build.
-3. **CD** (push to `main` only) — publishes the `frontend-dist` artifact so a host can pick it up.
-
-Run the same checks locally:
-
-```bash
-cd backend && pip install -r requirements-dev.txt && PYTHONPATH=. pytest -q
-cd frontend && npm ci && npm run lint && npm run build
-```
-
----
-
-## Deploy on Nebius (optional)
-
-Neither is required for the track. Both are wired so you can ship the same MVP.
-
-**Serverless Endpoint** — the picker UI + `/chat` in one container:
-
-```bash
-docker build -t scrapsense:mvp .
-# then, with the Nebius CLI and your project ids:
-nebius ai endpoint create \
-  --name scrapsense \
-  --image <your-image> \
-  --container-port 8000 \
-  --env NEBIUS_API_KEY="$NEBIUS_API_KEY" \
-  --public
-```
-
-**Serverless Job** — retrain the Isolation Forest from trusted reports after people start logging sales. No LLM call.
-
-```bash
-# from backend/, or inside the same image
-python -m jobs.retrain_anomaly
-```
-
-```bash
-nebius ai job create \
-  --name scrapsense-retrain \
-  --image <your-image> \
-  --container-command "python -m jobs.retrain_anomaly"
-```
-
----
-
-## Repo map
-
-```
-backend/agent/nemotron.py          # Token Factory client + Nano/Super/Ultra split
-backend/agent/main_agent.py        # Super copilot (deep agent)
-backend/agent/subagents/           # sale → extract → validate → anomaly
-backend/agent/tools/               # price estimator (pure math)
-backend/jobs/retrain_anomaly.py    # Serverless Job entrypoint
-frontend/                          # voice + photo chat UI
-```
-
-Longer product notes: [`scrapSense_project_overview.md`](scrapSense_project_overview.md).
+                                                  │
+                                            flagged? ── yes ──► Ultra judge
+                                                  │
+                                                no ──► store + confirm
