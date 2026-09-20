@@ -48,7 +48,7 @@ The track brief is the architecture: **Ultra when you need serious reasoning. Na
 
 All three go through Nebius Token Factory (OpenAI-compatible). Nano is on `eu-north1`; Super and Ultra on `us-central1`. Override with env vars if your project is pinned to one region.
 
-```
+```text
 Picker message
       │
       ▼
@@ -155,7 +155,7 @@ nebius ai job create \
 
 ## Repo map
 
-```
+```text
 backend/agent/nemotron.py          # Token Factory client + Nano/Super/Ultra split
 backend/agent/main_agent.py        # Super copilot (deep agent)
 backend/agent/subagents/           # sale → extract → validate → anomaly
