@@ -45,7 +45,7 @@ export default function App() {
       try {
         const res = await postChat({ text, image, pickerId })
         setMessages((prev) => [
-          ...prev.map((m) => (m.id === id ? { ...m, status: 'sent' } : m)),
+          ...prev.map((m) => (m.id === id ? { ...m, status: 'sent' as const } : m)),
           {
             id: uuid(),
             role: 'assistant',
@@ -55,7 +55,7 @@ export default function App() {
           },
         ])
       } catch {
-        setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, status: 'error' } : m)))
+        setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, status: 'error' as const } : m)))
       } finally {
         setIsSending(false)
       }
@@ -69,7 +69,7 @@ export default function App() {
       if (isSending) return
       setIsSending(true)
       setMessages((prev) =>
-        prev.map((m) => (m.id === message.id ? { ...m, status: 'sending' } : m)),
+        prev.map((m) => (m.id === message.id ? { ...m, status: 'sending' as const } : m)),
       )
 
       try {
@@ -79,7 +79,7 @@ export default function App() {
           pickerId,
         })
         setMessages((prev) => [
-          ...prev.map((m) => (m.id === message.id ? { ...m, status: 'sent' } : m)),
+          ...prev.map((m) => (m.id === message.id ? { ...m, status: 'sent' as const } : m)),
           {
             id: uuid(),
             role: 'assistant',
@@ -90,7 +90,7 @@ export default function App() {
         ])
       } catch {
         setMessages((prev) =>
-          prev.map((m) => (m.id === message.id ? { ...m, status: 'error' } : m)),
+          prev.map((m) => (m.id === message.id ? { ...m, status: 'error' as const } : m)),
         )
       } finally {
         setIsSending(false)

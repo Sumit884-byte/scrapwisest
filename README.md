@@ -103,6 +103,23 @@ pip install -r backend/requirements-ml.txt
 
 ---
 
+## CI/CD
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push and pull request to `main`:
+
+1. **Backend** — `pytest` (price estimator, health, model routing). No API key required.
+2. **Frontend** — `oxlint` + production build.
+3. **CD** (push to `main` only) — publishes the `frontend-dist` artifact so a host can pick it up.
+
+Run the same checks locally:
+
+```bash
+cd backend && pip install -r requirements-dev.txt && PYTHONPATH=. pytest -q
+cd frontend && npm ci && npm run lint && npm run build
+```
+
+---
+
 ## Deploy on Nebius (optional)
 
 Neither is required for the track. Both are wired so you can ship the same MVP.
