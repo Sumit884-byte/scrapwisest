@@ -19,6 +19,7 @@ export interface ChatMessage {
   image?: PendingImage
   timestamp: number
   status: MessageStatus
+  error?: string
 }
 
 /** Shape of the backend's `POST /chat` success response. */

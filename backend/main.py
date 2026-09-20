@@ -30,7 +30,9 @@ from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
-load_dotenv(Path(__file__).resolve().parent / ".env")
+_BACKEND_DIR = Path(__file__).resolve().parent
+load_dotenv(_BACKEND_DIR / ".env")
+load_dotenv(_BACKEND_DIR.parent / ".env")
 load_dotenv()
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -50,7 +52,7 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="ScrapSense API")
+app = FastAPI(title="Scrapwisest API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -64,7 +66,6 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # Serve the Vite build when present so one Nebius Serverless Endpoint can
 # host both the picker UI and /chat.
-_BACKEND_DIR = Path(__file__).resolve().parent
 _STATIC_CANDIDATES = (
     _BACKEND_DIR / "static",
     _BACKEND_DIR.parent / "frontend" / "dist",
@@ -205,9 +206,10 @@ async def chat(
                 config=agent_config,
                 context=agent_context,
             )
-        except Exception:
+        except Exception as exc:
             logger.exception("Agent invocation failed for text-only path")
-            raise HTTPException(status_code=500, detail="Something went wrong processing your message.")
+            detail = str(exc) if "NEBIUS_API_KEY" in str(exc) else "Something went wrong processing your message."
+            raise HTTPException(status_code=500, detail=detail) from exc
 
         reply = _extract_reply(agent_result)
         logger.info("Deep agent reply extracted: '%s'", reply)

@@ -32,7 +32,9 @@ export function MessageBubble({ message, onRetry }: Props) {
           <p className="mt-1 text-right text-[10px] text-slate-400">{time}</p>
           {message.status === 'error' && (
             <div className="mt-1.5 flex items-center justify-end gap-2">
-              <span className="text-[11px] font-medium text-red-300">Not sent</span>
+              <span className="text-[11px] font-medium text-red-300">
+                {message.error ?? 'Not sent'}
+              </span>
               <button
                 type="button"
                 onClick={() => onRetry(message)}

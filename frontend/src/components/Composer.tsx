@@ -118,7 +118,7 @@ export function Composer({ disabled, onSend }: Props) {
 
   return (
     <div className="border-t border-slate-200 bg-white">
-      <div className="mx-auto max-w-2xl px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-4">
+      <div className="mx-auto w-full max-w-2xl px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-6 lg:max-w-4xl lg:px-8">
         {error && (
           <p className="mb-2 text-center text-[12px] font-medium text-red-600" role="alert">
             {error}

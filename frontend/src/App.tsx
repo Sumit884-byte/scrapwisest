@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { postChat, pingHealth } from './lib/api'
+import { useCallback, useMemo, useState } from 'react'
+import { postChat } from './lib/api'
 import { getOrCreatePickerId, uuid } from './lib/picker'
 import type { ChatMessage } from './lib/types'
 import { ChatHeader } from './components/ChatHeader'
-import type { BackendStatus } from './components/ChatHeader'
 import { MessageList } from './components/MessageList'
 import { Composer } from './components/Composer'
 
@@ -13,17 +12,6 @@ export default function App() {
   const pickerId = useMemo(() => getOrCreatePickerId(), [])
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isSending, setIsSending] = useState(false)
-  const [backendStatus, setBackendStatus] = useState<BackendStatus>('checking')
-
-  useEffect(() => {
-    let cancelled = false
-    void pingHealth().then((ok) => {
-      if (!cancelled) setBackendStatus(ok ? 'online' : 'offline')
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   /** Send a user message (with optional photo) and append the assistant reply. */
   const handleSend = useCallback(
@@ -54,8 +42,11 @@ export default function App() {
             status: 'sent',
           },
         ])
-      } catch {
-        setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, status: 'error' as const } : m)))
+      } catch (err) {
+        const error = err instanceof Error ? err.message : 'Not sent'
+        setMessages((prev) =>
+          prev.map((m) => (m.id === id ? { ...m, status: 'error' as const, error } : m)),
+        )
       } finally {
         setIsSending(false)
       }
@@ -88,9 +79,10 @@ export default function App() {
             status: 'sent',
           },
         ])
-      } catch {
+      } catch (err) {
+        const error = err instanceof Error ? err.message : 'Not sent'
         setMessages((prev) =>
-          prev.map((m) => (m.id === message.id ? { ...m, status: 'error' as const } : m)),
+          prev.map((m) => (m.id === message.id ? { ...m, status: 'error' as const, error } : m)),
         )
       } finally {
         setIsSending(false)
@@ -108,7 +100,7 @@ export default function App() {
 
   return (
     <div className="flex h-dvh flex-col bg-slate-100">
-      <ChatHeader backendStatus={backendStatus} />
+      <ChatHeader />
       <MessageList
         messages={messages}
         isSending={isSending}

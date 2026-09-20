@@ -1,4 +1,4 @@
-# ScrapSense
+# Scrapwisest
 
 A scrap-price copilot waste pickers would actually use.
 
