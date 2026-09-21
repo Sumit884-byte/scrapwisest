@@ -57,7 +57,7 @@ def _judge_model():
 
 
 EXTRACTION_PROMPT = """You are extracting a scrap sale report from a waste \
-picker's message. The message may be in English, Urdu, or Roman Urdu, and \
+picker's message. The message may be in English, Urdu, Roman Urdu, Telugu, or Roman Telugu, and \
 may contain informal phrasing or speech-to-text errors.
 
 Extract these fields:

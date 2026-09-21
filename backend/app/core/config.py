@@ -61,6 +61,7 @@ class Settings(BaseSettings):
 
     # Nebius Token Factory / LLM Settings
     NEBIUS_API_KEY: str = ""
+    TAVILY_API_KEY: str = ""
     NEMOTRON_NANO_MODEL: str = "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
     NEMOTRON_SUPER_MODEL: str = "nvidia/nemotron-3-super-120b-a12b"
     NEMOTRON_ULTRA_MODEL: str = "nvidia/Nemotron-3-Ultra-550b-a55b"
@@ -78,16 +79,16 @@ class Settings(BaseSettings):
     LOW_CONFIDENCE_THRESHOLD: float = 0.6
     USE_LLM_REASONING: bool = True
 
-    # Friendly material mappings (English, Urdu)
-    FRIENDLY_MATERIAL_NAMES: dict[str, tuple[str, str]] = {
-        "plastic_pet": ("PET plastic", "پلاسٹک (PET)"),
-        "plastic_hdpe": ("HDPE plastic", "پلاسٹک (HDPE)"),
-        "glass": ("Glass", "شیشہ"),
-        "metal_aluminum": ("Aluminum", "ایلومینیم"),
-        "metal_steel": ("Steel", "لوہا / سٹیل"),
-        "cardboard": ("Cardboard", "گتہ"),
-        "mixed_paper": ("Paper", "کاغذ"),
-        "other": ("Mixed / other material", "دیگر مواد"),
+    # Friendly material mappings (English, Urdu, Telugu)
+    FRIENDLY_MATERIAL_NAMES: dict[str, tuple[str, str, str]] = {
+        "plastic_pet": ("PET plastic", "پلاسٹک (PET)", "PET ప్లాస్టిక్"),
+        "plastic_hdpe": ("HDPE plastic", "پلاسٹک (HDPE)", "HDPE ప్లాస్టిక్"),
+        "glass": ("Glass", "شیشہ", "గాజు"),
+        "metal_aluminum": ("Aluminum", "ایلومینیم", "అల్యూమినియం"),
+        "metal_steel": ("Steel", "لوہا / سٹیل", "ఇనుము / స్టీల్"),
+        "cardboard": ("Cardboard", "گتہ", "అట్టపెట్టె (కార్డ్‌బోర్డ్)"),
+        "mixed_paper": ("Paper", "کاغذ", "కాగితం"),
+        "other": ("Mixed / other material", "دیگر مواد", "ఇతర రకం"),
     }
 
     # Baseline Seed Prices (PKR / kg)

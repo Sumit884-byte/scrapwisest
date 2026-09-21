@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import type { ChatMessage } from '../lib/types'
+import { isSpeechSynthesisSupported, speakText, cancelSpeech } from '../lib/speech'
 
 interface Props {
   message: ChatMessage
@@ -7,13 +9,24 @@ interface Props {
 
 /** One chat bubble. User messages are dark and right-aligned; assistant
  *  replies are white cards on the left. A failed user message shows a small
- *  "Not sent / Retry" affordance. */
+ *  "Not sent / Retry" affordance. Assistant messages include a Listen button. */
 export function MessageBubble({ message, onRetry }: Props) {
+  const [isPlaying, setIsPlaying] = useState(false)
   const isUser = message.role === 'user'
   const time = new Date(message.timestamp).toLocaleTimeString([], {
     hour: '2-digit',
     minute: '2-digit',
   })
+
+  const handleToggleSpeak = () => {
+    if (isPlaying) {
+      cancelSpeech()
+      setIsPlaying(false)
+    } else {
+      setIsPlaying(true)
+      speakText(message.text, () => setIsPlaying(false))
+    }
+  }
 
   if (isUser) {
     return (
@@ -53,7 +66,19 @@ export function MessageBubble({ message, onRetry }: Props) {
     <div className="flex justify-start">
       <div className="max-w-[85%] rounded-2xl rounded-tl-md border border-slate-200 bg-white px-3.5 py-2.5 text-slate-800 shadow-sm">
         <p className="whitespace-pre-wrap break-words text-[15px] leading-snug">{message.text}</p>
-        <p className="mt-1 text-[10px] text-slate-400">{time}</p>
+        <div className="mt-1.5 flex items-center justify-between gap-4">
+          <p className="text-[10px] text-slate-400">{time}</p>
+          {isSpeechSynthesisSupported() && message.text && (
+            <button
+              type="button"
+              onClick={handleToggleSpeak}
+              className="flex items-center gap-1 text-[11px] font-medium text-emerald-700 hover:text-emerald-800 focus:outline-none"
+              title={isPlaying ? 'Stop listening' : 'Listen to response'}
+            >
+              <span>{isPlaying ? '🔊 Stop' : '🔊 Listen'}</span>
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )

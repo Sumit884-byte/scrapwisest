@@ -8,7 +8,8 @@ interface Props {
 /** English prompts — count shown depends on phone / tablet / desktop. */
 const ACTIONS: Array<{ icon: string; label: string; text: string }> = [
   { icon: '💵', label: 'What’s plastic worth?', text: 'What is the rate for plastic?' },
-  { icon: '🔩', label: 'What’s steel worth?', text: 'What is the rate for steel?' },
+  { icon: '�️', label: 'ప్లాస్టిక్ ధర (Telugu)', text: 'ప్లాస్టిక్ ధర ఎంత ఉంది per kg?' },
+  { icon: '�🔩', label: 'What’s steel worth?', text: 'What is the rate for steel?' },
   {
     icon: '📦',
     label: 'I sold something',
