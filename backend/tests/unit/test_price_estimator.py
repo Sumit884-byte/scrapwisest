@@ -50,3 +50,16 @@ def test_nemotron_routing_map():
     assert "Nano" in info["fast"]["model"]
     assert "super" in info["everyday"]["model"]
     assert "Ultra" in info["reasoning"]["model"]
+
+
+def test_active_provider_routing_map():
+    """The dynamic router should return a valid routing map for whichever provider is active."""
+    from app.agent.models import routing_info
+
+    info = routing_info()
+    assert "provider" in info
+    assert info["provider"] in ("nebius-token-factory", "xkiro")
+    assert "fast" in info and "model" in info["fast"]
+    assert "everyday" in info and "model" in info["everyday"]
+    assert "reasoning" in info and "model" in info["reasoning"]
+

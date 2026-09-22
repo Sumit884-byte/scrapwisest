@@ -306,7 +306,7 @@ async def chat(
                     return fallback
             detail = (
                 str(exc)
-                if "NEBIUS_API_KEY" in str(exc)
+                if "NEBIUS_API_KEY" in str(exc) or "XKIRO_API_KEY" in str(exc)
                 else "Something went wrong processing your message."
             )
             raise HTTPException(status_code=500, detail=detail) from exc

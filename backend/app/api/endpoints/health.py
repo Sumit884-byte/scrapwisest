@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 from fastapi import APIRouter
-from app.agent.nemotron import routing_info
+from app.agent.models import routing_info
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)

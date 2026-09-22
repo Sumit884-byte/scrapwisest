@@ -60,7 +60,19 @@ class Settings(BaseSettings):
     CLASSIFIER_MODEL_PATH: Path = _BACKEND_DIR / "models" / "classifier" / "scrapsense_model.keras"
     CLASSIFIER_CONFIG_PATH: Path = _BACKEND_DIR / "models" / "classifier" / "config.json"
 
-    # Nebius Token Factory / LLM Settings
+    # LLM Provider Selection: "xkiro" (default, free Qwen models) or "nebius" (Nemotron models)
+    LLM_PROVIDER: str = "xkiro"
+
+    # xKiro API Gateway (Qwen models) — https://xkiro.com/dashboard/api-keys
+    XKIRO_API_KEY: str = ""
+    XKIRO_BASE_URL: str = "https://api.xkiro.com/v1"
+    XKIRO_FAST_MODEL: str = "qwen/qwen3.8-omni-flash"
+    XKIRO_EVERYDAY_MODEL: str = "qwen/qwen3.8-omni-flash:free"
+    XKIRO_REASONING_MODEL: str = "qwen/qwen3.8-max:free"
+    XKIRO_REQUEST_TIMEOUT: float = 20.0
+    XKIRO_MAX_RETRIES: int = 2
+
+    # Nebius Token Factory / LLM Settings (Nemotron models)
     NEBIUS_API_KEY: str = ""
     TAVILY_API_KEY: str = ""
     NEMOTRON_NANO_MODEL: str = "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
