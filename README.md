@@ -128,6 +128,23 @@ Sale reports that need confirmation are stored in a small pending-review table
 until the picker confirms or corrects them. Confirmed reports are then added to
 the trusted price pool and can influence future estimates.
 
+When `TAVILY_API_KEY` is configured, low-confidence estimates also include
+external market context and source links from Tavily. External web context is
+shown separately from trusted picker reports and does not silently overwrite the
+deterministic local estimate.
+
+Location inputs are normalized deterministically so common variants such as
+`Income Colony`, `Income Colony, Multan`, and `income colony ke qareeb` can
+share the same local report history.
+
+Nebius calls use bounded timeouts and configurable retries. If the LLM is
+temporarily unavailable, simple price questions can fall back to the local
+deterministic estimator instead of returning a server error.
+
+Reports submitted through `POST /api/v1/reports` now use the same deterministic
+and Isolation Forest checks as the chat workflow. Flagged REST reports are
+returned with `needs_confirmation=true` and are not added to trusted pricing.
+
 ---
 
 ## CI/CD

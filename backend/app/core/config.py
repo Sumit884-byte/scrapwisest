@@ -68,6 +68,9 @@ class Settings(BaseSettings):
     NEMOTRON_ULTRA_MODEL: str = "nvidia/Nemotron-3-Ultra-550b-a55b"
     NEBIUS_NANO_BASE_URL: str = "https://api.tokenfactory.eu-north1.nebius.com/v1/"
     NEBIUS_REASONING_BASE_URL: str = "https://api.tokenfactory.us-central1.nebius.com/v1/"
+    NEBIUS_REQUEST_TIMEOUT: float = 15.0
+    NEBIUS_MAX_RETRIES: int = 2
+    ENABLE_LLM_FALLBACKS: bool = True
 
     # Pricing & Anomaly Thresholds
     MIN_LOCAL_REPORTS: int = 5
@@ -79,6 +82,7 @@ class Settings(BaseSettings):
     CONTAMINATION_FACTOR: float = 0.05
     LOW_CONFIDENCE_THRESHOLD: float = 0.6
     USE_LLM_REASONING: bool = True
+    USE_TAVILY_FALLBACK: bool = True
 
     # Friendly material mappings (English, Urdu, Telugu)
     FRIENDLY_MATERIAL_NAMES: dict[str, tuple[str, str, str]] = {

@@ -33,14 +33,28 @@ export function MessageList({ messages, isSending, onRetry, onQuickAction, onFol
   return (
     <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-6 lg:px-8">
       {messages.length === 0 ? (
-        <div className="mx-auto flex h-full w-full max-w-md flex-col items-center justify-center gap-5 text-center sm:max-w-2xl sm:gap-6 lg:max-w-4xl">
-          <div className="max-w-lg space-y-2 px-2">
-            <h2 className="text-lg font-semibold text-slate-800 sm:text-xl">Ask before you sell.</h2>
-            <p className="text-sm leading-relaxed text-slate-500">
-              Your scrap-price copilot. Check a rate or log a sale — in English, Hindi, Hinglish or Telugu.
-            </p>
+        <div className="mx-auto flex h-full w-full max-w-3xl flex-col justify-center gap-7 px-1 sm:gap-8">
+          <div className="grid gap-6 sm:grid-cols-[1fr_auto] sm:items-end">
+            <div className="max-w-xl space-y-3">
+              <p className="eyebrow">A better number before the deal</p>
+              <h2 className="hero-title">Know the rate.<br /><span>Keep your share.</span></h2>
+              <p className="max-w-md text-[14px] leading-relaxed text-[#687364] sm:text-[15px]">
+                Check a local scrap price or log what you sold. Speak naturally in English, Urdu, Roman Urdu, Hindi, Hinglish, or Telugu.
+              </p>
+            </div>
+            <div className="hidden rounded-2xl border border-[#d8d8c8] bg-[#f7f5ed] px-4 py-3 text-left sm:block">
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#8b6b3e]">Start here</p>
+              <p className="mt-1 text-[13px] font-semibold text-[#263324]">Ask for a rate</p>
+              <p className="text-[12px] text-[#788071]">before you negotiate</p>
+            </div>
           </div>
-          <QuickActions onPick={onQuickAction} disabled={isSending} />
+          <div>
+            <div className="mb-2.5 flex items-center justify-between">
+              <p className="section-label">Quick checks</p>
+              <p className="hidden text-[11px] text-[#8a9184] sm:block">Tap one or type your own</p>
+            </div>
+            <QuickActions onPick={onQuickAction} disabled={isSending} />
+          </div>
         </div>
       ) : (
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 lg:max-w-3xl">

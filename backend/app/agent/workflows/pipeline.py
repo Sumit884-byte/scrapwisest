@@ -29,6 +29,7 @@ from app.schemas.report import (
     RawExtraction,
 )
 from app.services.anomaly_detector import anomaly_detector_service
+from app.services.location_resolver import normalize_location
 
 logger = logging.getLogger(__name__)
 
@@ -202,7 +203,7 @@ def validate_and_build(state: PipelineState) -> dict:
         quantity_kg=raw.quantity_kg or 0.0,
         price_paid_pkr=raw.price_paid_pkr or 0.0,
         price_paid_pkr_per_kg=round(price_per_kg, 2),
-        location=raw.location_text or "unknown",
+        location=normalize_location(raw.location_text),
         timestamp=datetime.now(timezone.utc),
         needs_confirmation=bool(reasons),
         confirmation_reason="; ".join(reasons) if reasons else None,

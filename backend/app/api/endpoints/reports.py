@@ -13,6 +13,8 @@ from fastapi import APIRouter, HTTPException, Query
 from app.core.config import settings
 from app.repositories.report_repository import report_repo
 from app.schemas.report import MaterialType, PriceReport, ReportCreate, ReportResponse
+from app.services.location_resolver import normalize_location
+from app.services.anomaly_detector import anomaly_detector_service
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +38,8 @@ async def list_reports(
             raise HTTPException(status_code=400, detail=f"Invalid material type '{material}'.")
     elif location:
         all_reps = report_repo.trusted_reports() if trusted_only else report_repo.all_reports()
-        reports = [r for r in all_reps if r.location.strip().lower() == location.strip().lower()]
+        normalized = normalize_location(location)
+        reports = [r for r in all_reps if normalize_location(r.location) == normalized]
     else:
         reports = report_repo.trusted_reports() if trusted_only else report_repo.all_reports()
 
@@ -64,12 +67,47 @@ async def create_report(payload: ReportCreate):
         quantity_kg=payload.quantity_kg,
         price_paid_pkr=payload.price_paid_pkr,
         price_paid_pkr_per_kg=round(price_per_kg, 2),
-        location=payload.location.strip(),
+        location=normalize_location(payload.location),
         timestamp=datetime.now(timezone.utc),
         needs_confirmation=needs_confirm,
         confirmation_reason=confirm_reason,
         picker_id=payload.picker_id,
     )
 
-    report_repo.add(report)
+    recent = report_repo.find_by_material_and_location(
+        payload.material_type,
+        report.location,
+        trusted_only=True,
+    )
+    recent_prices = [item.price_paid_pkr_per_kg for item in recent]
+    verdict = anomaly_detector_service.deterministic_check(report, recent_prices)
+
+    if not verdict.is_anomalous and anomaly_detector_service.ml_model is not None:
+        material_prices = [
+            item.price_paid_pkr_per_kg
+            for item in report_repo.find_by_material_and_location(
+                payload.material_type,
+                trusted_only=True,
+            )
+        ]
+        if len(recent_prices) >= settings.MIN_REPORTS_FOR_BASELINE:
+            import statistics
+
+            median = statistics.median(material_prices or recent_prices)
+            verdict = anomaly_detector_service.ml_check(report, median)
+
+    if verdict.is_anomalous:
+        report.needs_confirmation = True
+        report.confirmation_reason = (
+            f"{verdict.method} anomaly check: {verdict.reason}"
+        )
+        logger.warning(
+            "REST report held for confirmation: material=%s location=%s reason=%s",
+            report.material_type,
+            report.location,
+            report.confirmation_reason,
+        )
+    else:
+        report_repo.add(report)
+
     return report

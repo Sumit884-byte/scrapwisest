@@ -223,6 +223,40 @@ def _demo_price_response(text: str) -> ChatResponse:
     return ChatResponse(reply=reply, price_data=estimate)
 
 
+def _deterministic_price_fallback(text: str) -> Optional[ChatResponse]:
+    """Answer simple price questions when the LLM service is unavailable."""
+    lowered = text.lower()
+    price_words = ("rate", "price", "worth", "qeemat", "dhar", "kitna", "kya hai")
+    if not any(word in lowered for word in price_words):
+        return None
+
+    aliases = (
+        (MaterialType.PLASTIC_HDPE, ("hdpe",)),
+        (MaterialType.PLASTIC_PET, ("pet", "plastic")),
+        (MaterialType.METAL_ALUMINUM, ("aluminum", "aluminium")),
+        (MaterialType.METAL_STEEL, ("steel", "iron", "loha")),
+        (MaterialType.CARDBOARD, ("cardboard",)),
+        (MaterialType.MIXED_PAPER, ("paper", "kaghaz")),
+        (MaterialType.GLASS, ("glass", "sheesha")),
+    )
+    material = next(
+        (candidate for candidate, names in aliases if any(name in lowered for name in names)),
+        None,
+    )
+    if material is None:
+        return None
+
+    location = "Income Colony" if "income colony" in lowered else "Samejabad"
+    estimate = price_estimator_service.estimate(material, location)
+    return ChatResponse(
+        reply=(
+            f"The current fallback estimate is about "
+            f"{estimate.estimated_price_per_kg:.0f} PKR per kg for {material.value.replace('_', ' ')}."
+        ),
+        price_data=estimate,
+    )
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     message: str = Form(""),
@@ -266,6 +300,10 @@ async def chat(
             )
         except Exception as exc:
             logger.exception("Agent invocation failed for text-only path")
+            if settings.ENABLE_LLM_FALLBACKS:
+                fallback = _deterministic_price_fallback(text)
+                if fallback is not None:
+                    return fallback
             detail = (
                 str(exc)
                 if "NEBIUS_API_KEY" in str(exc)

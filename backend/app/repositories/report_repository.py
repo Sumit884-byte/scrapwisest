@@ -12,6 +12,7 @@ from typing import List, Optional
 
 from app.core.config import settings
 from app.schemas.report import MaterialType, PriceReport
+from app.services.location_resolver import normalize_location
 
 logger = logging.getLogger(__name__)
 
@@ -95,8 +96,8 @@ class ReportRepository:
             if (r.material_type.value if hasattr(r.material_type, "value") else str(r.material_type).lower()) == mat_val
         ]
         if location:
-            loc_lower = location.strip().lower()
-            filtered = [r for r in filtered if r.location.strip().lower() == loc_lower]
+            normalized = normalize_location(location)
+            filtered = [r for r in filtered if normalize_location(r.location) == normalized]
 
         return filtered
 

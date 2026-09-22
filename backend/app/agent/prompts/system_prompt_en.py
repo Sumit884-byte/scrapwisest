@@ -28,7 +28,7 @@ If the picker is asking what something is worth rather than reporting a complete
 
 - Call `estimate_price` with the material and their neighborhood — **not** the pipeline subagent.
 - Give the price as a plain, approximate figure per kg, in one short sentence, in the language of **this** message.
-- Never mention confidence scores, tiers, or how it was calculated.
+- Never mention internal confidence scores or tiers. If external market context is present, describe it only as supporting market context and do not present it as a confirmed local picker price.
 - If you can't tell which material or neighborhood they mean, ask one short clarifying question first.
 
 # Detected Material (from a photo, if one was attached)

@@ -16,6 +16,7 @@ from app.core.config import settings
 from app.repositories.report_repository import ReportRepository, report_repo
 from app.schemas.price import PriceEstimate
 from app.schemas.report import MaterialType, PriceReport
+from app.services.location_resolver import normalize_location
 
 logger = logging.getLogger(__name__)
 
@@ -51,13 +52,17 @@ class PriceEstimatorService:
         if reports is None:
             reports = self.repo.trusted_reports()
 
+        location = normalize_location(location)
         logger.info("Calculating price estimate for material='%s' location='%s'", material.value, location)
         relevant = [
             r for r in reports
             if r.material_type == material and not r.needs_confirmation
         ]
 
-        local = [r for r in relevant if r.location.strip().lower() == location.strip().lower()]
+        local = [
+            r for r in relevant
+            if normalize_location(r.location) == location
+        ]
         city_wide = relevant
 
         local_prices = [r.price_paid_pkr_per_kg for r in local]
@@ -104,12 +109,42 @@ class PriceEstimatorService:
         min_observed = round(min(observed_prices), 2) if observed_prices else round(seed, 2)
         max_observed = round(max(observed_prices), 2) if observed_prices else round(seed, 2)
 
+        external_context = None
+        external_sources: list[str] = []
+        use_external = (
+            settings.USE_TAVILY_FALLBACK
+            and bool(settings.TAVILY_API_KEY.strip())
+            and conf < settings.LOW_CONFIDENCE_THRESHOLD
+        )
+        if use_external:
+            try:
+                # Lazy import keeps the deterministic estimator usable in
+                # lightweight scripts without loading the full agent stack.
+                from app.agent.tools.tavily_search import search_scrap_market_news
+
+                market = search_scrap_market_news(f"{material.value} in {location} Pakistan")
+                external_context = market.get("answer") or (
+                    market.get("results", [{}])[0].get("content")
+                    if market.get("results")
+                    else None
+                )
+                external_sources = [
+                    result["url"]
+                    for result in market.get("results", [])
+                    if result.get("url")
+                ]
+            except Exception:
+                logger.warning("Tavily fallback failed; keeping deterministic estimate", exc_info=True)
+
         res = PriceEstimate(
             material_type=material,
             location=location,
             estimated_price_per_kg=round(price, 2),
             min_price_per_kg=min_observed,
             max_price_per_kg=max_observed,
+            used_external_context=bool(external_context),
+            external_context=external_context,
+            external_sources=external_sources,
             confidence=round(conf, 3),
             tier_used=tier,
             local_report_count=n_local,

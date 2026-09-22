@@ -8,6 +8,14 @@ interface Props {
   onSend: (text: string, image: File | null) => void
 }
 
+function PhotoIcon() {
+  return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 7h3l1.5-2h7L17 7h3v12H4V7Z" /><circle cx="12" cy="13" r="3.5" /></svg>
+}
+
+function MicrophoneIcon() {
+  return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M9 21h6" /></svg>
+}
+
 /** Backend's own limits — enforced client-side so the picker gets immediate
  *  feedback instead of a 400 round-trip. */
 const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp']
@@ -117,8 +125,8 @@ export function Composer({ disabled, onSend }: Props) {
   const canSend = Boolean(text.trim() || image)
 
   return (
-    <div className="border-t border-slate-200 bg-white">
-      <div className="mx-auto w-full max-w-2xl px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-6 lg:max-w-4xl lg:px-8">
+    <div className="border-t border-[#d9d5ca] bg-[#fbfaf6]">
+      <div className="mx-auto w-full max-w-5xl px-4 pb-[max(0.9rem,env(safe-area-inset-bottom))] pt-3 sm:px-7 lg:px-10">
         {error && (
           <p className="mb-2 text-center text-[12px] font-medium text-red-600" role="alert">
             {error}
@@ -148,15 +156,15 @@ export function Composer({ disabled, onSend }: Props) {
         )}
 
         <div className="flex items-end gap-2">
-          <div className="flex flex-1 items-end gap-1 rounded-2xl border border-slate-300 bg-slate-50 px-1.5 py-1.5 focus-within:border-slate-400 focus-within:ring-2 focus-within:ring-slate-200">
+          <div className="composer-shell flex flex-1 items-end gap-1.5 px-1.5 py-1.5">
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
               disabled={disabled}
               aria-label="Attach a photo"
-              className="rounded-full p-2 text-lg leading-none text-slate-500 transition hover:bg-slate-200 disabled:opacity-40"
+              className="composer-action rounded-xl p-2 text-[14px] font-bold leading-none text-[#647062] transition disabled:opacity-40"
             >
-              📷
+              <PhotoIcon />
             </button>
             <textarea
               ref={taRef}
@@ -164,8 +172,8 @@ export function Composer({ disabled, onSend }: Props) {
               value={text}
               onChange={handleTextChange}
               onKeyDown={handleKeyDown}
-              placeholder="Type a message…"
-              className="max-h-[132px] flex-1 resize-none bg-transparent py-1.5 text-[15px] text-slate-900 placeholder:text-slate-400 focus:outline-none"
+              placeholder="Ask a rate or log a sale…"
+              className="max-h-[132px] flex-1 resize-none bg-transparent py-1.5 text-[15px] text-[#1d2a22] placeholder:text-[#9aa196] focus:outline-none"
             />
             {speechSupported && (
               <button
@@ -176,10 +184,10 @@ export function Composer({ disabled, onSend }: Props) {
                 className={`rounded-full p-2 text-lg leading-none transition disabled:opacity-40 ${
                   listening
                     ? 'animate-pulse bg-red-500 text-white'
-                    : 'text-slate-500 hover:bg-slate-200'
+                    : 'text-[#647062] hover:bg-[#e4e5d9]'
                 }`}
               >
-                {listening ? '■' : '🎤'}
+                {listening ? <span className="composer-stop">■</span> : <MicrophoneIcon />}
               </button>
             )}
           </div>
@@ -188,7 +196,7 @@ export function Composer({ disabled, onSend }: Props) {
             onClick={handleSend}
             disabled={disabled || !canSend}
             aria-label="Send message"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-800 text-lg text-white shadow-sm transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+            className="send-button flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-[19px] text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-40"
           >
             ↑
           </button>

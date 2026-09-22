@@ -129,7 +129,24 @@ function PriceCard({ data }: { data: PriceData }) {
         <span>{data.location}</span>
         <span className="text-right">{sampleCount} report{sampleCount === 1 ? '' : 's'}</span>
       </div>
-      <p className="mt-2 text-[11px] text-slate-500">Source: {tierLabel(data.tier_used)}</p>
+      <p className="mt-2 text-[11px] text-slate-500">
+        Source: {tierLabel(data.tier_used)}{data.used_external_context ? ' + Tavily market context' : ''}
+      </p>
+      {data.external_sources && data.external_sources.length > 0 && (
+        <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1">
+          {data.external_sources.slice(0, 2).map((source) => (
+            <a
+              key={source}
+              href={source}
+              target="_blank"
+              rel="noreferrer"
+              className="text-[10px] text-emerald-700 underline hover:text-emerald-900"
+            >
+              External source
+            </a>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
