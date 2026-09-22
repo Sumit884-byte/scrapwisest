@@ -10,12 +10,13 @@ from dataclasses import dataclass
 from deepagents import create_deep_agent
 from deepagents.backends import CompositeBackend, StateBackend, StoreBackend
 
-from app.agent.nemotron import super_model
+from app.agent.models import routing_info, super_model
 from app.agent.persistence import checkpointer, store
 from app.agent.prompts.system_prompt_en import SYSTEM_PROMPT_EN
 from app.agent.tools.price_estimator import estimate_price
 from app.agent.tools.tavily_search import search_scrap_market_news
 from app.agent.workflows.subagents import scrap_pipeline_agent
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -43,10 +44,12 @@ _agent = None
 
 
 def get_agent():
-    """Build the Super-powered copilot on first chat, not at import time."""
+    """Build the deep agent copilot on first chat, not at import time."""
     global _agent
     if _agent is None:
-        logger.info("Initializing ScrapSense deep agent with Nemotron Super on Token Factory...")
+        provider_name = settings.LLM_PROVIDER
+        model_name = routing_info().get("everyday", {}).get("model", "unknown")
+        logger.info("Initializing ScrapSense deep agent with %s (%s)...", provider_name, model_name)
         _agent = create_deep_agent(
             model=super_model(),
             system_prompt=SYSTEM_PROMPT,

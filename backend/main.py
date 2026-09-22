@@ -8,7 +8,7 @@ from __future__ import annotations
 from app.main import app
 from app.schemas.chat import ChatResponse
 from app.agent.main_agent import AgentContext, get_agent
-from app.agent.nemotron import routing_info
+from app.agent.models import routing_info
 from app.services.image_service import classify_image
 
 # Export symbols for backward compatibility with legacy scripts and tests

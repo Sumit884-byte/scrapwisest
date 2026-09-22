@@ -17,7 +17,7 @@ from typing import List, Optional
 
 from langgraph.graph import END, START, StateGraph
 
-from app.agent.nemotron import nano_model, ultra_model
+from app.agent.models import nano_model, ultra_model
 from app.agent.workflows.state import PipelineState
 from app.core.config import settings
 from app.repositories.report_repository import report_repo
