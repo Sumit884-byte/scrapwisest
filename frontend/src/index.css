@@ -4,6 +4,10 @@
   color-scheme: light;
 }
 
+html:has(.theme-dark) {
+  color-scheme: dark;
+}
+
 html,
 body,
 #root {
@@ -202,6 +206,17 @@ button:hover .quick-arrow {
 .theme-dark > div:last-child {
   border-color: #34434a;
   background: #1d2a34;
+}
+
+.theme-dark .theme-toggle,
+.theme-dark header button {
+  border-color: #50615d;
+  background: #263640;
+  color: #d2dfb3;
+}
+
+.theme-dark header button:hover {
+  background: #33474d;
 }
 
 .theme-dark .text-\[17px],

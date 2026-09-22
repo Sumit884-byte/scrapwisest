@@ -30,7 +30,7 @@ The agent routes those itself. Price math and cheap fraud checks stay in code. L
 | Price question | Super calls `estimate_price` (local reports → city → seed prices). One short reply in the picker's language. |
 | Sale report | Nano extracts material / kg / PKR / area. Rules validate it. Isolation Forest can flag weird price+quantity. **Ultra** only runs if those cheaper tiers already flagged the report. |
 | Follow-up | If a field is missing, Super asks **one** specific question. Conversation stays on the picker id. |
-| Photo | Optional helper. CNN if a model is present; otherwise the agent just asks what it is. No LLM spent on pixels. |
+| Photo | Optional helper. Uses the local CNN when available, then a Groq vision fallback when the CNN is unavailable or uncertain. Ambiguous results ask the picker to clarify instead of silently guessing. |
 
 Out of scope for this MVP (and not needed to demo): forecasting, a reporter-trust score, a trained CNN in the default deploy.
 
@@ -89,7 +89,7 @@ npm run dev
 
 Open [http://localhost:5173](http://localhost:5173).
 
-Optional multilingual mic (Groq Whisper auto-detect, then a small LLM pass to fix nearby-word slips including garbled place names anywhere in the world, then Edge-TTS). No city or country list. Set `GROQ_API_KEY` in `backend/.env`. Without it, the mic falls back to the browser.
+Optional multilingual mic (Sarvam Saaras for Indian languages, Groq Whisper fallback with auto-detection, then a small correction pass for nearby-word slips including garbled place names, followed by Sarvam Bulbul or Edge-TTS). Set `SARVAM_API_KEY` and/or `GROQ_API_KEY` in `backend/.env`. Without them, the mic falls back to the browser.
 
 Optional CNN (photo helper only):
 
@@ -150,8 +150,13 @@ returned with `needs_confirmation=true` and are not added to trusted pricing.
 Uploaded photos are treated as temporary inputs and removed after image
 classification, including when classification fails.
 
-The visible text conversation is also restored from device-local storage after
-a page refresh. Uploaded image files are not persisted in that transcript.
+The visible text conversation is restored from device-local storage after a
+page refresh. The header includes a Clear chat control. Uploaded image files
+are intentionally not persisted because browser `File` objects and preview
+URLs are temporary; the text transcript remains available.
+
+The header also provides a device-local dark mode toggle using the same warm
+Scrapwisest palette.
 
 ---
 
