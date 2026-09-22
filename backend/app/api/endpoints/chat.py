@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -15,9 +16,10 @@ from langchain_core.messages import AIMessage
 
 from app.agent.main_agent import AgentContext, get_agent
 from app.core.config import settings
+from app.repositories.report_repository import report_repo
 from app.schemas.chat import ChatResponse, ReportReviewData
 from app.schemas.price import PriceEstimate
-from app.schemas.report import MaterialType
+from app.schemas.report import MaterialType, PriceReport
 from app.services.price_estimator import price_estimator_service
 from app.services.image_service import image_service
 
@@ -129,6 +131,73 @@ def _chat_response(agent_result: dict) -> ChatResponse:
     )
 
 
+def _pending_review_response(text: str, picker_id: str) -> Optional[ChatResponse]:
+    """Handle review-card actions without spending another model call."""
+    pending = report_repo.get_pending(picker_id)
+    if pending is None:
+        return None
+
+    lowered = text.lower()
+    confirmation = any(
+        phrase in lowered
+        for phrase in ("details are correct", "accept this report", "accept the sale", "yes, accept")
+    )
+    correction = any(
+        phrase in lowered
+        for phrase in ("correct the weight", "correct details", "wrong weight", "wrong price")
+    )
+
+    review_data = ReportReviewData(
+        material_type=pending.material_type,
+        quantity_kg=pending.quantity_kg,
+        price_paid_pkr=pending.price_paid_pkr,
+        price_paid_pkr_per_kg=pending.price_paid_pkr_per_kg,
+        location=pending.location,
+    )
+
+    if confirmation:
+        pending.needs_confirmation = False
+        pending.confirmation_reason = None
+        report_repo.add(pending)
+        report_repo.clear_pending(picker_id)
+        return ChatResponse(
+            reply="Your sale details were confirmed and added to the trusted local price data.",
+            report_data=review_data,
+        )
+
+    if correction:
+        review_data.needs_confirmation = True
+        review_data.confirmation_reason = "Waiting for corrected weight or total price."
+        return ChatResponse(
+            reply="Please send the corrected total weight in kilograms and the total rupees you received.",
+            report_data=review_data,
+        )
+
+    return None
+
+
+def _persist_pending_review(response: ChatResponse, picker_id: str) -> ChatResponse:
+    """Keep reports needing review out of the trusted price pool."""
+    if response.report_data and (
+        response.report_data.needs_confirmation or response.report_data.is_anomalous
+    ):
+        data = response.report_data
+        report_repo.save_pending(
+            PriceReport(
+                material_type=data.material_type,
+                quantity_kg=data.quantity_kg,
+                price_paid_pkr=data.price_paid_pkr,
+                price_paid_pkr_per_kg=data.price_paid_pkr_per_kg,
+                location=data.location,
+                timestamp=datetime.now(timezone.utc),
+                needs_confirmation=True,
+                confirmation_reason=data.confirmation_reason or data.anomaly_reason,
+                picker_id=picker_id,
+            )
+        )
+    return response
+
+
 def _demo_price_response(text: str) -> ChatResponse:
     """Provide a no-API-key response for local UI testing only."""
     lowered = text.lower()
@@ -173,6 +242,11 @@ async def chat(
         logger.warning("Rejected /chat request: neither text nor image was provided.")
         raise HTTPException(status_code=400, detail="Provide a message, an image, or both.")
 
+    if text:
+        pending_response = _pending_review_response(text, picker_id)
+        if pending_response is not None:
+            return pending_response
+
     if settings.DEMO_MODE and image is None:
         logger.info("DEMO_MODE enabled: returning deterministic local estimate")
         return _demo_price_response(text)
@@ -201,7 +275,7 @@ async def chat(
 
         reply = _extract_reply(agent_result)
         logger.info("Deep agent reply extracted: '%s'", reply)
-        return _chat_response(agent_result)
+        return _persist_pending_review(_chat_response(agent_result), picker_id)
 
     # Path B & C: Photo attached
     logger.info("Processing attached image first...")
@@ -245,4 +319,4 @@ async def chat(
 
     reply = _extract_reply(agent_result)
     logger.info("Deep agent reply extracted: '%s'", reply)
-    return _chat_response(agent_result)
+    return _persist_pending_review(_chat_response(agent_result), picker_id)

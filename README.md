@@ -124,6 +124,10 @@ For local frontend testing without a Nebius API key, set `DEMO_MODE=true` in
 deterministic estimate from the demo dataset. It is only a UI preview mode and
 does not demonstrate the Nemotron workflow required for the hackathon.
 
+Sale reports that need confirmation are stored in a small pending-review table
+until the picker confirms or corrects them. Confirmed reports are then added to
+the trusted price pool and can influence future estimates.
+
 ---
 
 ## CI/CD
