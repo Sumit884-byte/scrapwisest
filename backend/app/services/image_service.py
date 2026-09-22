@@ -167,9 +167,11 @@ class ImageService:
             return {"error": "classification_failed"}
 
     def friendly_name(self, material: str) -> str:
-        en, ur = settings.FRIENDLY_MATERIAL_NAMES.get(
-            material, (material.replace("_", " ").title(), "")
+        names = settings.FRIENDLY_MATERIAL_NAMES.get(
+            material, (material.replace("_", " ").title(), "", "")
         )
+        en = names[0]
+        ur = names[1] if len(names) > 1 else ""
         return f"{en} ({ur})" if ur else en
 
     def format_classification_reply(self, result: dict) -> str:

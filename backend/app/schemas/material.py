@@ -13,6 +13,7 @@ class MaterialInfo(BaseModel):
     id: str
     name_en: str
     name_ur: str
+    name_te: str = ""
     seed_price_pkr_per_kg: float
     price_band_pkr: Tuple[float, float]
 

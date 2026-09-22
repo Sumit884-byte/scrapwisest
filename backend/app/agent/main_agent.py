@@ -14,6 +14,7 @@ from app.agent.nemotron import super_model
 from app.agent.persistence import checkpointer, store
 from app.agent.prompts.system_prompt_en import SYSTEM_PROMPT_EN
 from app.agent.tools.price_estimator import estimate_price
+from app.agent.tools.tavily_search import search_scrap_market_news
 from app.agent.workflows.subagents import scrap_pipeline_agent
 
 logger = logging.getLogger(__name__)
@@ -50,7 +51,7 @@ def get_agent():
             model=super_model(),
             system_prompt=SYSTEM_PROMPT,
             subagents=[scrap_pipeline_agent],
-            tools=[estimate_price],
+            tools=[estimate_price, search_scrap_market_news],
             context_schema=AgentContext,
             checkpointer=checkpointer,
             store=store,

@@ -2,7 +2,7 @@
 
 A scrap-price copilot waste pickers would actually use.
 
-Message what you sold, or ask what something is worth, in English, Urdu, or Roman Urdu. ScrapSense turns that messy field note into a trusted price — and remembers the neighborhood so the next check is faster.
+Message what you sold, or ask what something is worth, in English, Telugu, Roman Telugu, Urdu, or Roman Urdu. ScrapSense turns that messy field note into a trusted price — and remembers the neighborhood so the next check is faster.
 
 Built for the **Best Apps and Agents** track: a real workflow, powered by **Nemotron on Nebius Token Factory**, with Ultra reserved for hard judgment and Nano/Super on the everyday calls.
 

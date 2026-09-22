@@ -15,15 +15,19 @@ router = APIRouter(prefix="/materials", tags=["materials"])
 @router.get("", response_model=MaterialListResponse)
 async def get_materials():
     """
-    List all supported recyclable waste material categories with English and Urdu labels,
+    List all supported recyclable waste material categories with English, Urdu, and Telugu labels,
     baseline seed prices, and expected sanity price bands.
     """
     items = []
     for mat in MaterialType:
         mat_key = mat.value
-        name_en, name_ur = settings.FRIENDLY_MATERIAL_NAMES.get(
-            mat_key, (mat_key.replace("_", " ").title(), "")
+        names = settings.FRIENDLY_MATERIAL_NAMES.get(
+            mat_key, (mat_key.replace("_", " ").title(), "", "")
         )
+        name_en = names[0]
+        name_ur = names[1] if len(names) > 1 else ""
+        name_te = names[2] if len(names) > 2 else ""
+
         seed_price = settings.SEED_PRICES.get(mat_key, 50.0)
         price_band = settings.PRICE_PER_KG_BANDS.get(mat_key, (5.0, 500.0))
 
@@ -32,6 +36,7 @@ async def get_materials():
                 id=mat_key,
                 name_en=name_en,
                 name_ur=name_ur,
+                name_te=name_te,
                 seed_price_pkr_per_kg=seed_price,
                 price_band_pkr=price_band,
             )
