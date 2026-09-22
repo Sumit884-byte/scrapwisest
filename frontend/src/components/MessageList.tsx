@@ -38,11 +38,11 @@ export function MessageList({ messages, isSending, onRetry, onQuickAction, onFol
             <div className="max-w-xl space-y-3">
               <p className="eyebrow">A better number before the deal</p>
               <h2 className="hero-title">Know the rate.<br /><span>Keep your share.</span></h2>
-              <p className="max-w-md text-[14px] leading-relaxed text-[#687364] sm:text-[15px]">
+              <p className="hero-copy max-w-md text-[14px] leading-relaxed text-[#687364] sm:text-[15px]">
                 Check a local scrap price or log what you sold. Speak naturally in English, Urdu, Roman Urdu, Hindi, Hinglish, or Telugu.
               </p>
             </div>
-            <div className="hidden rounded-2xl border border-[#d8d8c8] bg-[#f7f5ed] px-4 py-3 text-left sm:block">
+            <div className="start-card hidden rounded-2xl border border-[#d8d8c8] bg-[#f7f5ed] px-4 py-3 text-left sm:block">
               <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#8b6b3e]">Start here</p>
               <p className="mt-1 text-[13px] font-semibold text-[#263324]">Ask for a rate</p>
               <p className="text-[12px] text-[#788071]">before you negotiate</p>

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { postChat } from './lib/api'
 import { getOrCreatePickerId, uuid } from './lib/picker'
 import type { ChatMessage } from './lib/types'
@@ -10,8 +10,82 @@ export default function App() {
   // Resolved once for this device — never regenerated. Drives conversation
   // continuity and the agent's long-term memory on the backend.
   const pickerId = useMemo(() => getOrCreatePickerId(), [])
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [darkMode, setDarkMode] = useState(() => {
+    try {
+      return localStorage.getItem('scrapsense_theme') === 'dark'
+    } catch {
+      return false
+    }
+  })
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    try {
+      const saved = localStorage.getItem(`scrapsense_messages_${pickerId}`)
+      if (!saved) return []
+      const parsed = JSON.parse(saved) as ChatMessage[]
+      return Array.isArray(parsed)
+        ? parsed.filter((message) => message && (message.role === 'user' || message.role === 'assistant'))
+        : []
+    } catch {
+      return []
+    }
+  })
   const [isSending, setIsSending] = useState(false)
+  const [connectionStatus, setConnectionStatus] = useState<'checking' | 'connected' | 'offline'>('checking')
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('scrapsense_theme', darkMode ? 'dark' : 'light')
+    } catch {
+      // Theme preference is optional when browser storage is unavailable.
+    }
+  }, [darkMode])
+
+  useEffect(() => {
+    try {
+      // Uploaded File objects and object URLs are intentionally omitted. Only
+      // the readable conversation transcript is restored on this device.
+      const safeMessages = messages.map(({ image: _image, ...message }) => message)
+      localStorage.setItem(`scrapsense_messages_${pickerId}`, JSON.stringify(safeMessages))
+    } catch {
+      // Conversation persistence is optional when browser storage is unavailable.
+    }
+  }, [messages, pickerId])
+
+  useEffect(() => {
+    let cancelled = false
+    let timer: number | undefined
+
+    const checkBackend = async () => {
+      if (!navigator.onLine) {
+        setConnectionStatus('offline')
+        return
+      }
+
+      try {
+        const controller = new AbortController()
+        const timeout = window.setTimeout(() => controller.abort(), 5000)
+        const response = await fetch('/health', { signal: controller.signal })
+        window.clearTimeout(timeout)
+        if (!cancelled) setConnectionStatus(response.ok ? 'connected' : 'offline')
+      } catch {
+        if (!cancelled) setConnectionStatus('offline')
+      }
+    }
+
+    const handleOnline = () => void checkBackend()
+    const handleOffline = () => setConnectionStatus('offline')
+    void checkBackend()
+    timer = window.setInterval(() => void checkBackend(), 30000)
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+
+    return () => {
+      cancelled = true
+      if (timer) window.clearInterval(timer)
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
 
   /** Send a user message (with optional photo) and append the assistant reply. */
   const handleSend = useCallback(
@@ -102,9 +176,25 @@ export default function App() {
     [handleSend],
   )
 
+  const handleClearConversation = useCallback(() => {
+    if (messages.length > 0 && !window.confirm('Clear this device\'s conversation?')) return
+    setMessages([])
+    try {
+      localStorage.removeItem(`scrapsense_messages_${pickerId}`)
+    } catch {
+      // Local storage is optional.
+    }
+  }, [messages.length, pickerId])
+
   return (
-    <div className="flex h-dvh flex-col bg-slate-100">
-      <ChatHeader />
+    <div className={`app-shell flex h-dvh flex-col bg-slate-100 ${darkMode ? 'theme-dark' : ''}`}>
+      <ChatHeader
+        darkMode={darkMode}
+        connectionStatus={connectionStatus}
+        hasMessages={messages.length > 0}
+        onClearConversation={handleClearConversation}
+        onToggleTheme={() => setDarkMode((value) => !value)}
+      />
       <MessageList
         messages={messages}
         isSending={isSending}
