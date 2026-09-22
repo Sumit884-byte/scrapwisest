@@ -103,6 +103,27 @@ pip install -r backend/requirements-ml.txt
 
 `GET /health` returns the live Nano / Super / Ultra map.
 
+### Load the demo market dataset
+
+The repository includes a small, clearly labeled demo dataset so the price
+estimator can demonstrate neighborhood and cross-neighborhood estimates before
+real picker reports exist. It is not loaded automatically in production.
+
+From the repository root, run:
+
+```bash
+python backend/scripts/load_demo_data.py
+```
+
+The loader is idempotent and marks inserted rows with the internal
+`demo-seed` picker id. To start with a clean demo database, remove the local
+`backend/reports.db` file first, then run the loader again.
+
+For local frontend testing without a Nebius API key, set `DEMO_MODE=true` in
+`backend/.env`. This bypasses the LLM and returns a clearly labeled
+deterministic estimate from the demo dataset. It is only a UI preview mode and
+does not demonstrate the Nemotron workflow required for the hackathon.
+
 ---
 
 ## CI/CD

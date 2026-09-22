@@ -6,6 +6,7 @@ Processes photo classification ahead of the agent reasoning loop.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import Optional
 
@@ -13,7 +14,11 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from langchain_core.messages import AIMessage
 
 from app.agent.main_agent import AgentContext, get_agent
-from app.schemas.chat import ChatResponse
+from app.core.config import settings
+from app.schemas.chat import ChatResponse, ReportReviewData
+from app.schemas.price import PriceEstimate
+from app.schemas.report import MaterialType
+from app.services.price_estimator import price_estimator_service
 from app.services.image_service import image_service
 
 logger = logging.getLogger(__name__)
@@ -41,6 +46,114 @@ def _extract_reply(agent_result: dict) -> str:
     return "Sorry, I couldn't come up with a response."
 
 
+def _extract_price_data(agent_result: dict) -> Optional[PriceEstimate]:
+    """Recover structured output from the estimate_price tool, when present."""
+    for msg in reversed(agent_result.get("messages", [])):
+        content = getattr(msg, "content", None)
+        if content is None and isinstance(msg, dict):
+            content = msg.get("content")
+
+        candidates = content if isinstance(content, list) else [content]
+        for candidate in candidates:
+            value = candidate.get("text") if isinstance(candidate, dict) and "text" in candidate else candidate
+            if isinstance(value, str):
+                try:
+                    value = json.loads(value)
+                except (TypeError, ValueError):
+                    continue
+            if not isinstance(value, dict):
+                continue
+            if not {"estimated_price_per_kg", "material_type", "tier_used"}.issubset(value):
+                continue
+            try:
+                return PriceEstimate.model_validate(value)
+            except Exception:
+                logger.debug("Ignoring malformed price tool output", exc_info=True)
+    return None
+
+
+def _walk_values(value):
+    """Yield nested dictionaries from model, tool, and message outputs."""
+    if hasattr(value, "model_dump"):
+        value = value.model_dump()
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from _walk_values(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _walk_values(child)
+
+
+def _extract_report_data(agent_result: dict) -> Optional[ReportReviewData]:
+    """Recover a sale report and anomaly status from the pipeline output."""
+    for item in _walk_values(agent_result):
+        raw = item.get("price_report") if isinstance(item, dict) else None
+        if raw is None and {"material_type", "quantity_kg", "price_paid_pkr_per_kg"}.issubset(item):
+            raw = item
+        if hasattr(raw, "model_dump"):
+            raw = raw.model_dump()
+        if not isinstance(raw, dict):
+            continue
+        if not {"material_type", "quantity_kg", "price_paid_pkr_per_kg"}.issubset(raw):
+            continue
+
+        verdict = item.get("verdict")
+        if hasattr(verdict, "model_dump"):
+            verdict = verdict.model_dump()
+        if not isinstance(verdict, dict):
+            verdict = {}
+        try:
+            return ReportReviewData(
+                material_type=raw["material_type"],
+                quantity_kg=raw.get("quantity_kg", 0),
+                price_paid_pkr=raw.get("price_paid_pkr", 0),
+                price_paid_pkr_per_kg=raw["price_paid_pkr_per_kg"],
+                location=raw.get("location", "unknown"),
+                needs_confirmation=raw.get("needs_confirmation", False),
+                confirmation_reason=raw.get("confirmation_reason"),
+                is_anomalous=verdict.get("is_anomalous", False),
+                anomaly_reason=verdict.get("reason"),
+                anomaly_method=verdict.get("method"),
+            )
+        except Exception:
+            logger.debug("Ignoring malformed report pipeline output", exc_info=True)
+    return None
+
+
+def _chat_response(agent_result: dict) -> ChatResponse:
+    return ChatResponse(
+        reply=_extract_reply(agent_result),
+        price_data=_extract_price_data(agent_result),
+        report_data=_extract_report_data(agent_result),
+    )
+
+
+def _demo_price_response(text: str) -> ChatResponse:
+    """Provide a no-API-key response for local UI testing only."""
+    lowered = text.lower()
+    material_aliases = (
+        (MaterialType.PLASTIC_PET, ("pet", "plastic")),
+        (MaterialType.PLASTIC_HDPE, ("hdpe",)),
+        (MaterialType.METAL_ALUMINUM, ("aluminum", "aluminium")),
+        (MaterialType.METAL_STEEL, ("steel",)),
+        (MaterialType.CARDBOARD, ("cardboard",)),
+        (MaterialType.MIXED_PAPER, ("paper",)),
+        (MaterialType.GLASS, ("glass",)),
+    )
+    material = next(
+        (candidate for candidate, aliases in material_aliases if any(alias in lowered for alias in aliases)),
+        MaterialType.PLASTIC_PET,
+    )
+    location = "Income Colony" if "income colony" in lowered else "Samejabad"
+    estimate = price_estimator_service.estimate(material, location)
+    reply = (
+        f"Demo estimate: {estimate.estimated_price_per_kg:.0f} PKR per kg for "
+        f"{material.value.replace('_', ' ')} in {location}."
+    )
+    return ChatResponse(reply=reply, price_data=estimate)
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     message: str = Form(""),
@@ -59,6 +172,10 @@ async def chat(
     if not text and image is None:
         logger.warning("Rejected /chat request: neither text nor image was provided.")
         raise HTTPException(status_code=400, detail="Provide a message, an image, or both.")
+
+    if settings.DEMO_MODE and image is None:
+        logger.info("DEMO_MODE enabled: returning deterministic local estimate")
+        return _demo_price_response(text)
 
     agent_config = {"configurable": {"thread_id": picker_id}}
     agent_context = AgentContext(picker_id=picker_id)
@@ -84,7 +201,7 @@ async def chat(
 
         reply = _extract_reply(agent_result)
         logger.info("Deep agent reply extracted: '%s'", reply)
-        return ChatResponse(reply=reply)
+        return _chat_response(agent_result)
 
     # Path B & C: Photo attached
     logger.info("Processing attached image first...")
@@ -128,4 +245,4 @@ async def chat(
 
     reply = _extract_reply(agent_result)
     logger.info("Deep agent reply extracted: '%s'", reply)
-    return ChatResponse(reply=reply)
+    return _chat_response(agent_result)

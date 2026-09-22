@@ -1,0 +1,38 @@
+[
+  {"material_type": "plastic_pet", "quantity_kg": 8.0, "price_paid_pkr_per_kg": 138.0, "location": "Income Colony"},
+  {"material_type": "plastic_pet", "quantity_kg": 12.0, "price_paid_pkr_per_kg": 142.0, "location": "Income Colony"},
+  {"material_type": "plastic_pet", "quantity_kg": 5.0, "price_paid_pkr_per_kg": 145.0, "location": "Income Colony"},
+  {"material_type": "plastic_pet", "quantity_kg": 18.0, "price_paid_pkr_per_kg": 136.0, "location": "Income Colony"},
+  {"material_type": "plastic_pet", "quantity_kg": 10.0, "price_paid_pkr_per_kg": 140.0, "location": "Income Colony"},
+  {"material_type": "plastic_pet", "quantity_kg": 7.0, "price_paid_pkr_per_kg": 132.0, "location": "Samejabad"},
+  {"material_type": "plastic_pet", "quantity_kg": 11.0, "price_paid_pkr_per_kg": 149.0, "location": "Samejabad"},
+  {"material_type": "plastic_pet", "quantity_kg": 6.0, "price_paid_pkr_per_kg": 141.0, "location": "Bosan Road"},
+  {"material_type": "plastic_pet", "quantity_kg": 15.0, "price_paid_pkr_per_kg": 144.0, "location": "Bosan Road"},
+  {"material_type": "plastic_pet", "quantity_kg": 9.0, "price_paid_pkr_per_kg": 135.0, "location": "Mumtazabad"},
+  {"material_type": "plastic_pet", "quantity_kg": 13.0, "price_paid_pkr_per_kg": 147.0, "location": "Mumtazabad"},
+  {"material_type": "plastic_pet", "quantity_kg": 4.0, "price_paid_pkr_per_kg": 139.0, "location": "Mumtazabad"},
+
+  {"material_type": "plastic_hdpe", "quantity_kg": 10.0, "price_paid_pkr_per_kg": 82.0, "location": "Income Colony"},
+  {"material_type": "plastic_hdpe", "quantity_kg": 15.0, "price_paid_pkr_per_kg": 86.0, "location": "Income Colony"},
+  {"material_type": "plastic_hdpe", "quantity_kg": 6.0, "price_paid_pkr_per_kg": 89.0, "location": "Income Colony"},
+  {"material_type": "plastic_hdpe", "quantity_kg": 20.0, "price_paid_pkr_per_kg": 80.0, "location": "Samejabad"},
+  {"material_type": "plastic_hdpe", "quantity_kg": 8.0, "price_paid_pkr_per_kg": 84.0, "location": "Samejabad"},
+  {"material_type": "plastic_hdpe", "quantity_kg": 12.0, "price_paid_pkr_per_kg": 87.0, "location": "Bosan Road"},
+
+  {"material_type": "metal_aluminum", "quantity_kg": 5.0, "price_paid_pkr_per_kg": 1020.0, "location": "Income Colony"},
+  {"material_type": "metal_aluminum", "quantity_kg": 8.0, "price_paid_pkr_per_kg": 1060.0, "location": "Income Colony"},
+  {"material_type": "metal_aluminum", "quantity_kg": 3.0, "price_paid_pkr_per_kg": 1090.0, "location": "Samejabad"},
+  {"material_type": "metal_aluminum", "quantity_kg": 11.0, "price_paid_pkr_per_kg": 1045.0, "location": "Bosan Road"},
+
+  {"material_type": "metal_steel", "quantity_kg": 25.0, "price_paid_pkr_per_kg": 188.0, "location": "Income Colony"},
+  {"material_type": "metal_steel", "quantity_kg": 14.0, "price_paid_pkr_per_kg": 195.0, "location": "Income Colony"},
+  {"material_type": "metal_steel", "quantity_kg": 30.0, "price_paid_pkr_per_kg": 202.0, "location": "Samejabad"},
+
+  {"material_type": "cardboard", "quantity_kg": 20.0, "price_paid_pkr_per_kg": 26.0, "location": "Income Colony"},
+  {"material_type": "cardboard", "quantity_kg": 12.0, "price_paid_pkr_per_kg": 30.0, "location": "Samejabad"},
+  {"material_type": "cardboard", "quantity_kg": 18.0, "price_paid_pkr_per_kg": 28.0, "location": "Bosan Road"},
+
+  {"material_type": "glass", "quantity_kg": 16.0, "price_paid_pkr_per_kg": 7.0, "location": "Income Colony"},
+  {"material_type": "glass", "quantity_kg": 22.0, "price_paid_pkr_per_kg": 9.0, "location": "Samejabad"},
+  {"material_type": "glass", "quantity_kg": 10.0, "price_paid_pkr_per_kg": 8.0, "location": "Bosan Road"}
+]
