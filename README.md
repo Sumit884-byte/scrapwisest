@@ -221,4 +221,5 @@ backend/jobs/retrain_anomaly.py    # Serverless Job entrypoint
 frontend/                          # voice + photo chat UI
 ```
 
-Longer product notes: [`scrapwisest_project_overview.md`](scrapwisest_project_overview.md).
+Longer product notes: [`scrapwisest_project_overview.md`](scrapwisest_project_overview.md) and [`FEEDBACK.md`](FEEDBACK.md).
+
