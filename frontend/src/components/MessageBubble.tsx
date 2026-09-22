@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import type { ChatMessage, PriceData } from '../lib/types'
 import { speakReply, cancelSpeech } from '../lib/speech'
 import { readSettings } from '../lib/settings'
+import { Volume2, Square, RotateCcw, ExternalLink, AlertTriangle, CheckCircle2, TrendingUp, MapPin, FileText, BarChart3 } from 'lucide-react'
 
 interface Props {
   message: ChatMessage
@@ -9,13 +10,15 @@ interface Props {
   onFollowUp: (text: string) => void
 }
 
-/** One chat bubble. User messages are dark and right-aligned; assistant
- *  replies are white cards on the left. A failed user message shows a small
- *  "Not sent / Retry" affordance. Assistant messages include a Listen button. */
+function isRtlText(text: string): boolean {
+  return /[\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(text)
+}
+
 export function MessageBubble({ message, onRetry, onFollowUp }: Props) {
   const [isPlaying, setIsPlaying] = useState(false)
   const playingRef = useRef(false)
   const isUser = message.role === 'user'
+  const rtl = isRtlText(message.text)
   const time = new Date(message.timestamp).toLocaleTimeString([], {
     hour: '2-digit',
     minute: '2-digit',
@@ -38,29 +41,30 @@ export function MessageBubble({ message, onRetry, onFollowUp }: Props) {
 
   if (isUser) {
     return (
-      <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-2xl rounded-tr-md bg-slate-800 px-3.5 py-2.5 text-slate-50 shadow-sm">
+      <div className="flex justify-end message-enter" dir={rtl ? 'rtl' : 'ltr'}>
+        <div className="max-w-[85%] rounded-[18px] rounded-tr-[6px] bg-[var(--color-user-bubble)] px-4 py-3 text-[var(--color-user-text)] shadow-[var(--shadow-sm)]">
           {message.image && (
             <img
               src={message.image.previewUrl}
               alt="Attached photo"
-              className="mb-2 max-h-44 w-auto rounded-lg object-cover"
+              className="mb-2.5 max-h-44 w-auto rounded-xl object-cover"
             />
           )}
           {message.text && (
-            <p className="whitespace-pre-wrap break-words text-[15px] leading-snug">{message.text}</p>
+            <p className="whitespace-pre-wrap break-words text-[15px] leading-[1.6]">{message.text}</p>
           )}
-          <p className="mt-1 text-right text-[10px] text-slate-400">{time}</p>
+          <p className={`mt-1.5 text-[11px] text-white/50 ${rtl ? 'text-left' : 'text-right'}`}>{time}</p>
           {message.status === 'error' && (
-            <div className="mt-1.5 flex items-center justify-end gap-2">
+            <div className={`mt-2 flex items-center gap-2 ${rtl ? 'justify-start' : 'justify-end'}`}>
               <span className="text-[11px] font-medium text-red-300">
                 {message.error ?? 'Not sent'}
               </span>
               <button
                 type="button"
                 onClick={() => onRetry(message)}
-                className="rounded-md bg-slate-600 px-2.5 py-1 text-[11px] font-semibold text-white transition hover:bg-slate-500"
+                className="flex items-center gap-1 rounded-lg bg-white/15 px-2.5 py-1 text-[11px] font-semibold text-white transition hover:bg-white/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
               >
+                <RotateCcw className="h-3 w-3" />
                 Retry
               </button>
             </div>
@@ -71,23 +75,37 @@ export function MessageBubble({ message, onRetry, onFollowUp }: Props) {
   }
 
   return (
-    <div className="flex justify-start">
-      <div className="max-w-[85%] rounded-2xl rounded-tl-md border border-slate-200 bg-white px-3.5 py-2.5 text-slate-800 shadow-sm">
-        <p className="whitespace-pre-wrap break-words text-[15px] leading-snug">{message.text}</p>
+    <div className="flex justify-start message-enter" dir={rtl ? 'rtl' : 'ltr'}>
+      <div className="max-w-[85%] rounded-[18px] rounded-tl-[6px] border border-[var(--color-card-border)] bg-[var(--color-surface)] px-4 py-3 text-[var(--color-text)] shadow-[var(--shadow-sm)]">
+        <p className="whitespace-pre-wrap break-words text-[15px] leading-[1.6]">{message.text}</p>
         {message.priceData && <PriceCard data={message.priceData} />}
         {message.reportData && (
           <ReportReviewCard data={message.reportData} onFollowUp={onFollowUp} />
         )}
-        <div className="mt-1.5 flex items-center justify-between gap-4">
-          <p className="text-[10px] text-slate-400">{time}</p>
+        <div className="mt-2.5 flex items-center justify-between gap-4 border-t border-[var(--color-card-border)] pt-2.5">
+          <p className="text-[11px] text-[var(--color-text-muted)]">{time}</p>
           {message.text && (
             <button
               type="button"
               onClick={handleToggleSpeak}
-              className="flex items-center gap-1 text-[11px] font-medium text-emerald-700 hover:text-emerald-800 focus:outline-none"
+              className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-surface)] ${
+                isPlaying
+                  ? 'bg-[var(--color-accent)] text-white animate-pulse'
+                  : 'bg-[var(--color-accent-soft)] text-[var(--color-accent-dark)] hover:bg-[var(--color-accent)] hover:text-white'
+              }`}
               title={isPlaying ? 'Stop listening' : 'Listen to response'}
             >
-              <span>{isPlaying ? '🔊 Stop' : '🔊 Listen'}</span>
+              {isPlaying ? (
+                <>
+                  <Square className="h-3 w-3 fill-current" />
+                  Stop
+                </>
+              ) : (
+                <>
+                  <Volume2 className="h-3.5 w-3.5" />
+                  Listen
+                </>
+              )}
             </button>
           )}
         </div>
@@ -125,6 +143,12 @@ function confidenceLabel(value: number): string {
   return 'Early estimate'
 }
 
+function confidenceColor(value: number): string {
+  if (value >= 0.75) return 'var(--color-accent)'
+  if (value >= 0.45) return '#D97706'
+  return 'var(--color-text-muted)'
+}
+
 function hindiPlace(location: string): string {
   const map: Record<string, string> = {
     india: 'भारत',
@@ -146,11 +170,41 @@ function hindiPlace(location: string): string {
     .trim()
 }
 
+function RangeIndicator({ low, high, current }: { low: number; high: number; current: number }) {
+  const range = high - low
+  if (range <= 0) return null
+  const position = ((current - low) / range) * 100
+  const clampedPosition = Math.max(5, Math.min(95, position))
+
+  return (
+    <div className="mt-3">
+      <div className="flex items-center justify-between text-[11px] font-medium text-[var(--color-text-muted)]">
+        <span>{low}</span>
+        <span>{high}</span>
+      </div>
+      <div className="relative mt-1.5 h-1.5 rounded-full bg-[var(--color-border)]">
+        <div
+          className="absolute top-0 h-full rounded-full bg-[var(--color-accent)]"
+          style={{ width: `${clampedPosition}%` }}
+        />
+        <div
+          className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[var(--color-accent)] bg-white shadow-[var(--shadow-sm)]"
+          style={{ left: `${clampedPosition}%` }}
+        />
+      </div>
+      <div className="mt-1 text-center text-[11px] font-semibold text-[var(--color-accent-dark)]">
+        {current}
+      </div>
+    </div>
+  )
+}
+
 function PriceCard({ data }: { data: PriceData }) {
   const language = readSettings().language
   const hindi = language === 'hi'
   const low = Math.round(data.min_price_per_kg ?? data.estimated_price_per_kg)
   const high = Math.round(data.max_price_per_kg ?? data.estimated_price_per_kg)
+  const current = Math.round(data.estimated_price_per_kg)
   const sampleCount = data.local_report_count || data.city_report_count
   const place =
     !data.location || data.location.toLowerCase() === 'unknown'
@@ -162,49 +216,93 @@ function PriceCard({ data }: { data: PriceData }) {
         : data.location
 
   return (
-    <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+    <div className="mt-3.5 rounded-[18px] border border-[var(--color-card-border)] bg-[var(--color-surface)] p-4 card-enter">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1 min-w-0">
+          <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--color-text-muted)]">
+            <TrendingUp className="h-3.5 w-3.5 text-[var(--color-accent)]" />
             {hindi ? 'कबाड़ भाव' : 'Estimated scrap rate'}
           </p>
-          <p className="mt-0.5 text-sm font-semibold text-slate-800">
+          <div className="mt-1.5 flex items-baseline gap-2">
+            <p className="text-[28px] font-bold leading-none tracking-tight text-[var(--color-accent-dark)]">
+              {hindi
+                ? `${data.estimated_price_per_kg} ₹/kg`
+                : `${data.estimated_price_per_kg} PKR/kg`}
+            </p>
+          </div>
+          <p className="mt-2 inline-flex items-center gap-1 rounded-full bg-[var(--color-accent-soft)] px-2.5 py-1 text-[12px] font-semibold text-[var(--color-accent-dark)]">
             {materialLabel(data.material_type, language)}
           </p>
         </div>
-        <p className="text-right text-lg font-bold text-emerald-800">
-          {hindi
-            ? `${data.estimated_price_per_kg} रुपए/किलो`
-            : `${data.estimated_price_per_kg} PKR/kg`}
-        </p>
-      </div>
-      <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-slate-600">
-        <span>{hindi ? `रेंज: ${low}–${high}` : `Observed range: ${low}–${high}`}</span>
-        <span className="text-right">{hindi ? 'अनुमान' : confidenceLabel(data.confidence)}</span>
-        <span>{place}</span>
-        <span className="text-right">
-          {hindi ? `${sampleCount} रिपोर्ट` : `${sampleCount} report${sampleCount === 1 ? '' : 's'}`}
-        </span>
-      </div>
-      <p className="mt-2 text-[11px] text-slate-500">
-        {hindi ? 'स्रोत: इलाके की रिपोर्ट' : `Source: ${tierLabel(data.tier_used)}`}
-        {!hindi && data.used_external_context ? ' + Tavily market context' : ''}
-      </p>
-      {data.external_sources && data.external_sources.length > 0 && (
-        <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1">
-          {data.external_sources.slice(0, 2).map((source) => (
-            <a
-              key={source}
-              href={source}
-              target="_blank"
-              rel="noreferrer"
-              className="text-[10px] text-emerald-700 underline hover:text-emerald-900"
-            >
-              External source
-            </a>
-          ))}
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[var(--color-accent-soft)] text-[var(--color-accent)]">
+          <BarChart3 className="h-5 w-5" />
         </div>
-      )}
+      </div>
+
+      {low !== high && <RangeIndicator low={low} high={high} current={current} />}
+
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <div className="rounded-xl bg-[var(--color-bg-chat)] p-3">
+          <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+            <BarChart3 className="h-3 w-3" />
+            {hindi ? 'रेंज' : 'Observed range'}
+          </p>
+          <p className="mt-1 text-[14px] font-semibold text-[var(--color-text)]">
+            {low}–{high}
+          </p>
+        </div>
+        <div className="rounded-xl bg-[var(--color-bg-chat)] p-3">
+          <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+            <MapPin className="h-3 w-3" />
+            {hindi ? 'स्थान' : 'Location'}
+          </p>
+          <p className="mt-1 text-[14px] font-semibold text-[var(--color-text)] truncate">{place}</p>
+        </div>
+        <div className="rounded-xl bg-[var(--color-bg-chat)] p-3">
+          <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+            <CheckCircle2 className="h-3 w-3" style={{ color: confidenceColor(data.confidence) }} />
+            {hindi ? 'विश्वास' : 'Confidence'}
+          </p>
+          <p className="mt-1 text-[14px] font-semibold" style={{ color: confidenceColor(data.confidence) }}>
+            {hindi ? 'अनुमान' : confidenceLabel(data.confidence)}
+          </p>
+        </div>
+        <div className="rounded-xl bg-[var(--color-bg-chat)] p-3">
+          <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+            <FileText className="h-3 w-3" />
+            {hindi ? 'रिपोर्ट' : 'Reports'}
+          </p>
+          <p className="mt-1 text-[14px] font-semibold text-[var(--color-text)]">
+            {hindi ? `${sampleCount} रिपोर्ट` : `${sampleCount} report${sampleCount === 1 ? '' : 's'}`}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 border-t border-[var(--color-card-border)] pt-3">
+        <p className="text-[11px] text-[var(--color-text-muted)]">
+          {hindi ? 'स्रोत: ' : 'Source: '}
+          <span className="font-medium text-[var(--color-text)]">
+            {hindi ? 'इलाके की रिपोर्ट' : tierLabel(data.tier_used)}
+          </span>
+          {!hindi && data.used_external_context ? ' + Tavily market context' : ''}
+        </p>
+        {data.external_sources && data.external_sources.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {data.external_sources.slice(0, 2).map((source) => (
+              <a
+                key={source}
+                href={source}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 rounded-lg bg-[var(--color-accent-soft)] px-2.5 py-1 text-[11px] font-medium text-[var(--color-accent-dark)] transition hover:bg-[var(--color-accent)] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+              >
+                <ExternalLink className="h-3 w-3" />
+                External source
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -220,32 +318,56 @@ function ReportReviewCard({
   const needsReview = data.needs_confirmation || data.is_anomalous
 
   return (
-    <div className={`mt-3 rounded-xl border p-3 ${needsReview ? 'border-amber-200 bg-amber-50/80' : 'border-slate-200 bg-slate-50'}`}>
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Sale details</p>
-      <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-[12px] text-slate-700">
-        <span>{label}</span>
-        <span className="text-right">{data.quantity_kg} kg</span>
-        <span>{data.price_paid_pkr} PKR total</span>
-        <span className="text-right">{data.price_paid_pkr_per_kg} PKR/kg</span>
-        <span className="col-span-2">{data.location}</span>
+    <div className={`mt-3.5 rounded-[18px] border p-4 card-enter ${needsReview ? 'border-amber-200 bg-amber-50/80' : 'border-[var(--color-card-border)] bg-[var(--color-bg-chat)]'}`}>
+      <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--color-text-muted)]">
+        {needsReview ? (
+          <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+        ) : (
+          <CheckCircle2 className="h-3.5 w-3.5 text-[var(--color-accent)]" />
+        )}
+        Sale details
+      </p>
+      <div className="mt-3 grid grid-cols-2 gap-2.5">
+        <div className="rounded-lg bg-[var(--color-surface)] p-2.5 border border-[var(--color-card-border)]">
+          <p className="text-[10px] font-medium text-[var(--color-text-muted)]">Material</p>
+          <p className="mt-0.5 text-[14px] font-semibold text-[var(--color-text)]">{label}</p>
+        </div>
+        <div className="rounded-lg bg-[var(--color-surface)] p-2.5 border border-[var(--color-card-border)]">
+          <p className="text-[10px] font-medium text-[var(--color-text-muted)]">Quantity</p>
+          <p className="mt-0.5 text-[14px] font-semibold text-[var(--color-text)]">{data.quantity_kg} kg</p>
+        </div>
+        <div className="rounded-lg bg-[var(--color-surface)] p-2.5 border border-[var(--color-card-border)]">
+          <p className="text-[10px] font-medium text-[var(--color-text-muted)]">Total paid</p>
+          <p className="mt-0.5 text-[14px] font-semibold text-[var(--color-text)]">{data.price_paid_pkr} PKR</p>
+        </div>
+        <div className="rounded-lg bg-[var(--color-surface)] p-2.5 border border-[var(--color-card-border)]">
+          <p className="text-[10px] font-medium text-[var(--color-text-muted)]">Per kg</p>
+          <p className="mt-0.5 text-[14px] font-semibold text-[var(--color-text)]">{data.price_paid_pkr_per_kg} PKR/kg</p>
+        </div>
+        <div className="col-span-2 rounded-lg bg-[var(--color-surface)] p-2.5 border border-[var(--color-card-border)]">
+          <p className="text-[10px] font-medium text-[var(--color-text-muted)]">Location</p>
+          <p className="mt-0.5 text-[14px] font-semibold text-[var(--color-text)]">{data.location}</p>
+        </div>
       </div>
       {needsReview && (
         <>
-          <p className="mt-2 text-[11px] leading-snug text-amber-800">
+          <p className="mt-3 flex items-start gap-1.5 text-[12px] leading-snug text-amber-800">
+            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
             {data.confirmation_reason ?? data.anomaly_reason ?? 'This sale needs a quick review.'}
           </p>
-          <div className="mt-2 flex flex-wrap gap-2">
+          <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => onFollowUp('The sale details are correct. Please accept this report.')}
-              className="rounded-lg bg-amber-700 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-amber-800"
+              className="flex items-center gap-1.5 rounded-xl bg-[var(--color-accent)] px-3.5 py-2 text-[12px] font-semibold text-white transition hover:bg-[var(--color-accent-dark)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
             >
+              <CheckCircle2 className="h-3.5 w-3.5" />
               Details are correct
             </button>
             <button
               type="button"
               onClick={() => onFollowUp('I need to correct the weight or price in my sale report.')}
-              className="rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-amber-800 hover:bg-amber-100"
+              className="flex items-center gap-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 py-2 text-[12px] font-semibold text-[var(--color-text)] transition hover:bg-[var(--color-surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
             >
               Correct details
             </button>

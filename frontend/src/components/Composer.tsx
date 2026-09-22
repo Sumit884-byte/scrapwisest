@@ -11,6 +11,7 @@ import {
   startRecording,
   type ActiveRecording,
 } from '../lib/speech'
+import { Camera, Mic, Square, ArrowUp, X, Loader2 } from 'lucide-react'
 
 interface Props {
   disabled: boolean
@@ -18,16 +19,6 @@ interface Props {
   speechLocale?: string
 }
 
-function PhotoIcon() {
-  return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 7h3l1.5-2h7L17 7h3v12H4V7Z" /><circle cx="12" cy="13" r="3.5" /></svg>
-}
-
-function MicrophoneIcon() {
-  return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M9 21h6" /></svg>
-}
-
-/** Backend's own limits — enforced client-side so the picker gets immediate
- *  feedback instead of a 400 round-trip. */
 const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024
 
@@ -60,7 +51,6 @@ export function Composer({ disabled, onSend, speechLocale = 'en-IN' }: Props) {
 
   const micSupported = isMicSupported()
 
-  // Revoke the preview object URL on unmount (new URL from the last render).
   useEffect(() => {
     return () => {
       if (imageRef.current) URL.revokeObjectURL(imageRef.current.previewUrl)
@@ -99,7 +89,7 @@ export function Composer({ disabled, onSend, speechLocale = 'en-IN' }: Props) {
 
   const pickImage = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
-    event.target.value = '' // allow re-selecting the same file
+    event.target.value = ''
     attachImage(file)
   }
 
@@ -234,50 +224,52 @@ export function Composer({ disabled, onSend, speechLocale = 'en-IN' }: Props) {
 
   return (
     <div
-      className="border-t border-[#d9d5ca] bg-[#fbfaf6]"
+      className="border-t border-[var(--color-border)] bg-[var(--color-surface)]"
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <div className="mx-auto w-full max-w-5xl px-4 pb-[max(0.9rem,env(safe-area-inset-bottom))] pt-3 sm:px-7 lg:px-10">
+      <div className="mx-auto w-full max-w-[1200px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 sm:px-6 lg:px-8">
         {dragOver && (
-          <p className="mb-2 rounded-xl border border-dashed border-[#8bae57] bg-[#eef4e2] px-3 py-2 text-center text-[12px] font-medium text-[#3f6b4c]">
+          <p className="mb-2 rounded-xl border border-dashed border-[var(--color-accent)] bg-[var(--color-accent-soft)] px-3 py-2.5 text-center text-[12px] font-medium text-[var(--color-accent-dark)]">
             Drop a photo to attach it
           </p>
         )}
         {error && (
-          <p className="mb-2 text-center text-[12px] font-medium text-red-600" role="alert">
+          <p className="mb-2 flex items-center justify-center gap-1.5 rounded-xl bg-[var(--color-error-bg)] border border-[var(--color-error-border)] px-3 py-2 text-center text-[12px] font-medium text-[var(--color-error)]" role="alert">
             {error}
           </p>
         )}
 
         {image && (
-          <div className="mb-2 flex items-center gap-2.5 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-2">
+          <div className="mb-2.5 flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-chat)] px-3 py-2.5">
             <img
               src={image.previewUrl}
               alt="Photo preview"
               className="h-14 w-14 rounded-lg object-cover"
             />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[13px] font-medium text-slate-800">{image.file.name}</p>
-              <p className="text-[11px] text-slate-500">{(image.file.size / 1024).toFixed(0)} KB</p>
+              <p className="truncate text-[13px] font-medium text-[var(--color-text)]">{image.file.name}</p>
+              <p className="text-[11px] text-[var(--color-text-muted)]">{(image.file.size / 1024).toFixed(0)} KB</p>
             </div>
             <button
               type="button"
               onClick={clearImage}
               aria-label="Remove photo"
-              className="rounded-md px-2 py-1 text-sm text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--color-text-muted)] transition hover:bg-[var(--color-border)] hover:text-[var(--color-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
             >
-              ✕
+              <X className="h-4 w-4" />
             </button>
           </div>
         )}
 
-        <div className="flex items-end gap-2">
+        <div className="flex items-end gap-2.5">
           <div
-            className={`composer-shell flex flex-1 items-end gap-1.5 px-1.5 py-1.5 ${
-              dragOver ? 'ring-2 ring-[#8bae57] ring-offset-2 ring-offset-[#fbfaf6]' : ''
+            className={`flex flex-1 items-end gap-1 rounded-[18px] border bg-[var(--color-surface)] px-2 py-1.5 transition-all shadow-[var(--shadow-composer)] ${
+              dragOver
+                ? 'border-[var(--color-accent)] ring-4 ring-[var(--color-focus-ring)]'
+                : 'border-[var(--color-composer-border)] focus-within:border-[var(--color-accent)] focus-within:ring-4 focus-within:ring-[var(--color-focus-ring)]'
             }`}
           >
             <button
@@ -285,9 +277,9 @@ export function Composer({ disabled, onSend, speechLocale = 'en-IN' }: Props) {
               onClick={() => fileRef.current?.click()}
               disabled={disabled}
               aria-label="Attach a photo"
-              className="composer-action rounded-xl p-2 text-[14px] font-bold leading-none text-[#647062] transition disabled:opacity-40"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[var(--color-text-muted)] transition hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text)] disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
             >
-              <PhotoIcon />
+              <Camera className="h-[18px] w-[18px]" />
             </button>
             <textarea
               ref={taRef}
@@ -295,8 +287,8 @@ export function Composer({ disabled, onSend, speechLocale = 'en-IN' }: Props) {
               value={text}
               onChange={handleTextChange}
               onKeyDown={handleKeyDown}
-              placeholder="Ask a rate or log a sale…"
-              className="max-h-[132px] flex-1 resize-none bg-transparent py-1.5 text-[15px] text-[#1d2a22] placeholder:text-[#9aa196] focus:outline-none"
+              placeholder="Ask a rate or log a sale..."
+              className="max-h-[132px] flex-1 resize-none bg-transparent px-1 py-2 text-[15px] leading-[1.5] text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none"
             />
             {micSupported && (
               <button
@@ -307,20 +299,20 @@ export function Composer({ disabled, onSend, speechLocale = 'en-IN' }: Props) {
                 }}
                 disabled={disabled || transcribing}
                 aria-label={listening ? 'Stop voice input' : 'Speak a message'}
-                className={`rounded-xl p-2 text-lg leading-none transition disabled:opacity-40 ${
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 ${
                   listening
-                    ? 'animate-pulse bg-red-500 text-white'
+                    ? 'bg-[var(--color-error)] text-white animate-pulse'
                     : transcribing
-                      ? 'text-[#3f6b4c]'
-                      : 'text-[#647062] hover:bg-[#e4e5d9]'
+                      ? 'text-[var(--color-accent)]'
+                      : 'text-[var(--color-text-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text)]'
                 }`}
               >
                 {listening ? (
-                  <span className="composer-stop">■</span>
+                  <Square className="h-4 w-4 fill-current" />
                 ) : transcribing ? (
-                  <span aria-hidden="true">…</span>
+                  <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <MicrophoneIcon />
+                  <Mic className="h-[18px] w-[18px]" />
                 )}
               </button>
             )}
@@ -330,9 +322,9 @@ export function Composer({ disabled, onSend, speechLocale = 'en-IN' }: Props) {
             onClick={handleSend}
             disabled={disabled || !canSend}
             aria-label="Send message"
-            className="send-button flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-[19px] text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-[var(--color-accent)] text-white shadow-[var(--shadow-md)] transition-all hover:bg-[var(--color-accent-dark)] hover:shadow-[var(--shadow-lg)] hover:-translate-y-0.5 active:translate-y-0 active:shadow-[var(--shadow-sm)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
           >
-            ↑
+            <ArrowUp className="h-5 w-5" strokeWidth={2.5} />
           </button>
         </div>
 

@@ -91,7 +91,7 @@ class Settings(BaseSettings):
     TAVILY_API_KEY: str = ""
     GROQ_API_KEY: str = ""
     GROQ_WHISPER_MODEL: str = "whisper-large-v3"
-    GROQ_STT_FIX_MODEL: str = "llama-3.1-8b-instant"
+    GROQ_STT_FIX_MODEL: str = "openai/gpt-oss-120b"
     GROQ_VISION_MODEL: str = "qwen/qwen3.8-27b"
     SARVAM_API_KEY: str = ""
     SARVAM_STT_MODEL: str = "saaras:v3"

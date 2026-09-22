@@ -13,10 +13,10 @@ logger = logging.getLogger(__name__)
 
 def _api_key() -> str:
     key = settings.XKIRO_API_KEY.strip()
-    if not key:
+    if not key or key == "your-api-key-here":
         raise RuntimeError(
-            "XKIRO_API_KEY is missing. Get your free API key at https://xkiro.com/dashboard/api-keys "
-            "and set it in your .env file."
+            "XKIRO_API_KEY is missing or still a placeholder. Get your free API key at "
+            "https://xkiro.com/dashboard/api-keys and set it in backend/.env."
         )
     return key
 

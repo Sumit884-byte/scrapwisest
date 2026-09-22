@@ -1,4 +1,5 @@
 import type { RegionStatus } from '../lib/useRegion'
+import { Sun, Moon, Trash2, Settings, MapPin, Zap } from 'lucide-react'
 
 interface Props {
   regionLabel: string | null
@@ -24,56 +25,58 @@ export function ChatHeader({
   onClearConversation,
 }: Props) {
   return (
-    <header className="border-b border-[#d9d5ca] bg-[#fbfaf6]">
-      <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-3 px-4 py-3.5 sm:px-7 lg:px-10">
+    <header className="border-b border-[var(--color-border)] bg-[var(--color-surface)] sticky top-0 z-10">
+      <div className="mx-auto flex w-full max-w-[1200px] items-center justify-between gap-3 px-4 py-3.5 sm:px-6 lg:px-8">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="brand-mark" aria-hidden="true"><span>SW</span></div>
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--color-primary)] text-[var(--color-accent)] font-bold text-[13px] tracking-tight shadow-[var(--shadow-sm)] ring-1 ring-inset ring-white/10" aria-hidden="true">
+            SW
+          </div>
           <div className="min-w-0">
-            <h1 className="text-[17px] font-bold tracking-[-0.02em] text-[#162235]">Scrapwisest</h1>
-            <p className="text-[11px] font-medium tracking-wide text-[#71806f]">FAIR RATES. CLEAR DEALS.</p>
+            <h1 className="truncate text-[17px] font-bold tracking-[-0.02em] text-[var(--color-text)]">Scrapwisest</h1>
+            <p className="truncate text-[10px] font-semibold tracking-[0.12em] uppercase text-[var(--color-text-muted)]">FAIR RATES. CLEAR DEALS.</p>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1.5">
           <button
             type="button"
             onClick={onToggleDarkMode}
-            className="theme-toggle"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg)]"
             aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
             title={darkMode ? 'Light mode' : 'Dark mode'}
           >
-            {darkMode ? (
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42" /></svg>
-            ) : (
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20.5 15.2A8.5 8.5 0 0 1 8.8 3.5 8.5 8.5 0 1 0 20.5 15.2Z" /></svg>
-            )}
+            {darkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
           </button>
           {canClearConversation && (
             <button
               type="button"
               onClick={onClearConversation}
-              className="hidden rounded-full border border-[#d8d8c8] bg-white px-2.5 py-1 text-[11px] font-semibold text-[#65705f] hover:bg-[#f7f5ed] sm:inline"
+              className="flex h-9 shrink-0 items-center gap-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-[11px] font-semibold text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg)] hidden sm:flex"
             >
+              <Trash2 className="h-4 w-4" />
               Clear chat
             </button>
           )}
           <button
             type="button"
             onClick={onOpenSettings}
-            className="rounded-full border border-[#d8d8c8] bg-white px-2.5 py-1 text-[11px] font-semibold text-[#65705f] hover:bg-[#f7f5ed]"
+            className="flex h-9 max-w-[140px] shrink-0 items-center gap-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-[11px] font-semibold text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg)]"
           >
-            {placeLabel ? placeLabel : 'Language · City'}
+            <Settings className="h-4 w-4 shrink-0" />
+            <span className="truncate">{placeLabel ? placeLabel : 'Language · City'}</span>
           </button>
           {regionStatus === 'ready' && regionLabel ? (
-            <p className="hidden text-right text-[11px] font-semibold text-[#65705f] sm:block">
+            <div className="hidden items-center gap-1.5 rounded-xl bg-[var(--color-accent-soft)] px-3 py-1.5 text-[11px] font-semibold text-[var(--color-accent-dark)] sm:flex">
+              <MapPin className="h-3.5 w-3.5" />
               Nearby · {regionLabel}
-            </p>
+            </div>
           ) : regionStatus !== 'denied' ? (
             <button
               type="button"
               onClick={onRequestRegion}
               disabled={regionStatus === 'asking'}
-              className="hidden shrink-0 rounded-full border border-[#d8d8c8] bg-white px-2.5 py-1 text-[11px] font-semibold text-[#65705f] hover:bg-[#f7f5ed] disabled:opacity-50 sm:inline"
+              className="flex h-9 shrink-0 items-center gap-1.5 rounded-xl border border-[var(--color-accent)] bg-[var(--color-accent-soft)] px-3 py-1.5 text-[11px] font-semibold text-[var(--color-accent-dark)] transition-colors hover:bg-[var(--color-accent)] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg)] disabled:opacity-50 disabled:cursor-not-allowed hidden sm:flex"
             >
+              <Zap className="h-3.5 w-3.5" />
               {regionStatus === 'asking' ? 'Locating…' : 'Faster nearby'}
             </button>
           ) : null}

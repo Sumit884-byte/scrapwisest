@@ -12,8 +12,6 @@ import { useRegion } from './lib/useRegion'
 import { useSettings } from './lib/useSettings'
 
 export default function App() {
-  // Resolved once for this device — never regenerated. Drives conversation
-  // continuity and the agent's long-term memory on the backend.
   const pickerId = useMemo(() => getOrCreatePickerId(), [])
   const [messages, setMessages] = useState<ChatMessage[]>(() => readConversation())
   const [isSending, setIsSending] = useState(false)
@@ -37,7 +35,6 @@ export default function App() {
     try {
       localStorage.setItem('scrapwisest.theme', darkMode ? 'dark' : 'light')
     } catch {
-      // Theme still works for the current session if storage is unavailable.
     }
   }, [darkMode])
 
@@ -48,7 +45,6 @@ export default function App() {
     clearConversation()
   }, [messages.length])
 
-  /** Send a user message (with optional photo) and append the assistant reply. */
   const handleSend = useCallback(
     async (text: string, image: File | null) => {
       if (isSending) return
@@ -99,7 +95,6 @@ export default function App() {
     [isSending, pickerId, region?.id, settings],
   )
 
-  /** Resend a failed user message with the same text + photo it carried. */
   const handleRetry = useCallback(
     async (message: ChatMessage) => {
       if (isSending) return
@@ -150,32 +145,34 @@ export default function App() {
   )
 
   return (
-    <div className={`flex h-dvh flex-col bg-slate-100 ${darkMode ? 'theme-dark' : ''}`}>
-      <ChatHeader
-        regionLabel={region?.label ?? null}
-        regionStatus={regionStatus}
-        onRequestRegion={() => {
-          void requestRegion()
-        }}
-        placeLabel={placeLabel(settings) || null}
-        onOpenSettings={() => setSettingsOpen(true)}
-        darkMode={darkMode}
-        onToggleDarkMode={() => setDarkMode((value) => !value)}
-        canClearConversation={messages.length > 0}
-        onClearConversation={handleClearConversation}
-      />
-      <MessageList
-        messages={messages}
-        isSending={isSending}
-        onRetry={handleRetry}
-        onQuickAction={handleQuickAction}
-        onFollowUp={(text) => void handleSend(text, null)}
-      />
-      <Composer
-        disabled={isSending}
-        onSend={handleSend}
-        speechLocale={speechLocale(settings.language)}
-      />
+    <div className={`flex h-dvh flex-col ${darkMode ? 'theme-dark' : ''}`}>
+      <div className="flex-1 flex flex-col max-w-[1200px] w-full mx-auto bg-[var(--color-bg-chat)] shadow-[var(--shadow-xl)]">
+        <ChatHeader
+          regionLabel={region?.label ?? null}
+          regionStatus={regionStatus}
+          onRequestRegion={() => {
+            void requestRegion()
+          }}
+          placeLabel={placeLabel(settings) || null}
+          onOpenSettings={() => setSettingsOpen(true)}
+          darkMode={darkMode}
+          onToggleDarkMode={() => setDarkMode((value) => !value)}
+          canClearConversation={messages.length > 0}
+          onClearConversation={handleClearConversation}
+        />
+        <MessageList
+          messages={messages}
+          isSending={isSending}
+          onRetry={handleRetry}
+          onQuickAction={handleQuickAction}
+          onFollowUp={(text) => void handleSend(text, null)}
+        />
+        <Composer
+          disabled={isSending}
+          onSend={handleSend}
+          speechLocale={speechLocale(settings.language)}
+        />
+      </div>
       <SettingsPanel
         open={settingsOpen}
         settings={settings}
