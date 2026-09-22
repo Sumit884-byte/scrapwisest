@@ -1,5 +1,5 @@
 """
-Report-to-verdict pipeline workflow for ScrapSense.
+Report-to-verdict pipeline workflow for Scrapwisest.
 Graph structure:
     START -> extract_report -> validate_and_build --+--> deterministic_check --+--> ml_check --+--> llm_check --> END
                                                       |                        |                |
@@ -18,8 +18,10 @@ from typing import List, Optional
 from langgraph.graph import END, START, StateGraph
 
 from app.agent.models import nano_model, ultra_model
+from app.agent.tool_outputs import record_report
 from app.agent.workflows.state import PipelineState
 from app.core.config import settings
+from app.schemas.chat import ReportReviewData
 from app.repositories.report_repository import report_repo
 from app.schemas.report import (
     AnomalyVerdict,
@@ -38,6 +40,28 @@ KNOWN_MATERIALS = [m.value for m in MaterialType]
 PRICE_PER_KG_BANDS = {
     MaterialType(k): v for k, v in settings.PRICE_PER_KG_BANDS.items()
 }
+
+
+def _material_label(material) -> str:
+    return material.value if hasattr(material, "value") else str(material)
+
+
+def _capture_report(price_report: PriceReport, verdict: Optional[AnomalyVerdict] = None) -> None:
+    verdict_data = verdict.model_dump() if verdict is not None else {}
+    record_report(
+        ReportReviewData(
+            material_type=price_report.material_type,
+            quantity_kg=price_report.quantity_kg,
+            price_paid_pkr=price_report.price_paid_pkr,
+            price_paid_pkr_per_kg=price_report.price_paid_pkr_per_kg,
+            location=price_report.location,
+            needs_confirmation=price_report.needs_confirmation,
+            confirmation_reason=price_report.confirmation_reason,
+            is_anomalous=bool(verdict_data.get("is_anomalous", False)),
+            anomaly_reason=verdict_data.get("reason"),
+            anomaly_method=verdict_data.get("method"),
+        )
+    )
 
 _structured_extraction_model = None
 _structured_llm_judge = None
@@ -123,6 +147,7 @@ def _finalize(price_report: PriceReport, verdict: AnomalyVerdict, message: str) 
         report_repo.add(price_report)
     else:
         logger.warning("Report flagged as anomalous by %s check; not storing.", verdict.method)
+    _capture_report(price_report, verdict)
     return {
         "verdict": verdict,
         "messages": [{"role": "assistant", "content": message}],
@@ -180,7 +205,7 @@ def validate_and_build(state: PipelineState) -> dict:
         if not (min_price <= price_per_kg <= max_price):
             reasons.append(
                 f"price/kg ({price_per_kg:.0f}) outside expected range "
-                f"for {raw.material_type.value}"
+                f"for {_material_label(raw.material_type)}"
             )
 
     if raw.material_type == MaterialType.OTHER:
@@ -211,10 +236,11 @@ def validate_and_build(state: PipelineState) -> dict:
 
     if price_report.needs_confirmation:
         logger.warning("Report needs confirmation: %s", price_report.confirmation_reason)
+        _capture_report(price_report)
     else:
         logger.info(
             "Report validated cleanly: %s %.2fkg @ %.2f/kg",
-            raw.material_type.value,
+            _material_label(raw.material_type),
             price_report.quantity_kg,
             price_report.price_paid_pkr_per_kg,
         )
@@ -226,7 +252,7 @@ def validate_and_build(state: PipelineState) -> dict:
             "content": (
                 f"Report needs confirmation: {price_report.confirmation_reason}"
                 if price_report.needs_confirmation
-                else f"Report intaken cleanly: {raw.material_type.value} "
+                else f"Report intaken cleanly: {_material_label(raw.material_type)} "
                      f"{price_report.quantity_kg}kg @ {price_report.price_paid_pkr_per_kg}/kg"
             ),
         }],
@@ -264,7 +290,7 @@ def llm_check_node(state: PipelineState) -> dict:
 
     logger.info("LLM judgment check running: flag_reasons='%s'", flag_reasons)
     prompt = LLM_JUDGE_PROMPT.format(
-        material=price_report.material_type.value,
+        material=_material_label(price_report.material_type),
         quantity=price_report.quantity_kg,
         price_per_kg=price_report.price_paid_pkr_per_kg,
         location=price_report.location,
@@ -279,7 +305,7 @@ def llm_check_node(state: PipelineState) -> dict:
         confidence=judgment.confidence,
     )
     message = (
-        f"LLM review of {price_report.material_type.value} "
+        f"LLM review of {_material_label(price_report.material_type)} "
         f"{price_report.quantity_kg}kg @ {price_report.price_paid_pkr_per_kg}/kg: "
         + (
             f"flagged as anomalous (confidence {verdict.confidence:.2f}) -- {verdict.reason}"
@@ -295,7 +321,7 @@ def accept_node(state: PipelineState) -> dict:
     flagged = _flagged_results(state)
     verdict = flagged[-1] if flagged else state["deterministic_result"]
     message = (
-        f"Accepted {price_report.material_type.value} "
+        f"Accepted {_material_label(price_report.material_type)} "
         f"{price_report.quantity_kg}kg @ {price_report.price_paid_pkr_per_kg}/kg "
         f"via {verdict.method} check -- {verdict.reason}"
     )

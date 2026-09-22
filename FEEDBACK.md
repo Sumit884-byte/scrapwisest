@@ -1,6 +1,6 @@
 # Nebius Token Factory & NVIDIA Nemotron Feedback
 
-Feedback compiled during the development of **Scrapwisest / ScrapSense** for the Nebius x NVIDIA Global AI Hackathon.
+Feedback compiled during the development of **Scrapwisest** for the Nebius x NVIDIA Global AI Hackathon.
 
 ---
 

@@ -2,7 +2,7 @@
 
 A scrap-price copilot waste pickers would actually use.
 
-Message what you sold, or ask what something is worth, in English, Telugu, Roman Telugu, Urdu, or Roman Urdu. ScrapSense turns that messy field note into a trusted price — and remembers the neighborhood so the next check is faster.
+Message what you sold, or ask what something is worth, in English, Telugu, Roman Telugu, Urdu, or Roman Urdu. Scrapwisest turns that messy field note into a trusted price — and remembers the neighborhood so the next check is faster.
 
 Built for the **Best Apps and Agents** track: a real workflow, powered by **Nemotron on Nebius Token Factory**, with Ultra reserved for hard judgment and Nano/Super on the everyday calls.
 
@@ -88,6 +88,8 @@ npm run dev
 ```
 
 Open [http://localhost:5173](http://localhost:5173).
+
+Optional multilingual mic (Groq Whisper auto-detect, then a small LLM pass to fix nearby-word slips including garbled place names anywhere in the world, then Edge-TTS). No city or country list. Set `GROQ_API_KEY` in `backend/.env`. Without it, the mic falls back to the browser.
 
 Optional CNN (photo helper only):
 
@@ -177,10 +179,10 @@ Neither is required for the track. Both are wired so you can ship the same MVP.
 **Serverless Endpoint** — the picker UI + `/chat` in one container:
 
 ```bash
-docker build -t scrapsense:mvp .
+docker build -t scrapwisest:mvp .
 # then, with the Nebius CLI and your project ids:
 nebius ai endpoint create \
-  --name scrapsense \
+  --name scrapwisest \
   --image <your-image> \
   --container-port 8000 \
   --env NEBIUS_API_KEY="$NEBIUS_API_KEY" \
@@ -196,7 +198,7 @@ python -m jobs.retrain_anomaly
 
 ```bash
 nebius ai job create \
-  --name scrapsense-retrain \
+  --name scrapwisest-retrain \
   --image <your-image> \
   --container-command "python -m jobs.retrain_anomaly"
 ```
@@ -214,4 +216,4 @@ backend/jobs/retrain_anomaly.py    # Serverless Job entrypoint
 frontend/                          # voice + photo chat UI
 ```
 
-Longer product notes: [`scrapSense_project_overview.md`](scrapSense_project_overview.md).
+Longer product notes: [`scrapwisest_project_overview.md`](scrapwisest_project_overview.md).

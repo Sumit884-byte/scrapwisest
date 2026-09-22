@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "scrapwisest-backend"
 version = "0.1.0"
-description = "ScrapSense / Scrapwisest AI waste classification and price intelligence platform"
+description = "Scrapwisest AI waste classification and price intelligence platform"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [
@@ -30,6 +30,8 @@ dependencies = [
     "sqlalchemy>=2.0.30",
     "aiosqlite>=0.20.0",
     "alembic>=1.13.0",
+    "groq>=0.13.0",
+    "edge-tts>=7.0.0",
 ]
 
 [project.optional-dependencies]

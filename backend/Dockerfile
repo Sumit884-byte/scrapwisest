@@ -1,4 +1,4 @@
-# ScrapSense / Scrapwisest Backend Dockerfile
+# Scrapwisest Backend Dockerfile
 FROM python:3.11-slim AS runtime
 
 WORKDIR /app

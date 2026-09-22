@@ -11,6 +11,8 @@ export default defineConfig({
     proxy: {
       '/chat': 'http://localhost:8000',
       '/health': 'http://localhost:8000',
+      '/transcribe': 'http://localhost:8000',
+      '/speak': 'http://localhost:8000',
     },
   },
 })

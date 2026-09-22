@@ -6,8 +6,7 @@ from app.core.config import settings
 
 def _expected_provider() -> str:
     """Return the provider string the health endpoint should report."""
-    provider = (settings.LLM_PROVIDER or "xkiro").strip().lower()
-    if provider in ("nebius", "nemotron", "nebius-token-factory"):
+    if settings.resolved_llm_provider() == "nebius":
         return "nebius-token-factory"
     return "xkiro"
 

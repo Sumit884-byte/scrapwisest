@@ -1,5 +1,5 @@
 """
-Persistence layer for ScrapSense agent memory.
+Persistence layer for Scrapwisest agent memory.
 Manages episodic short-term conversation checkpoints and per-picker semantic memory.
 """
 

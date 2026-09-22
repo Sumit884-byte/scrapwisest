@@ -1,4 +1,4 @@
-# ScrapSense Refactor Roadmap
+# Scrapwisest Refactor Roadmap
 
 ## B. Resilience, Timeouts & Retries
 

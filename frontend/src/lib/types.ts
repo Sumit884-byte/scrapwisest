@@ -1,4 +1,4 @@
-/** Shared types for the ScrapSense chat client. */
+/** Shared types for the Scrapwisest chat client. */
 
 export type Role = 'user' | 'assistant'
 
@@ -59,4 +59,5 @@ export interface ChatResponse {
   history: unknown[]
   price_data?: PriceData | null
   report_data?: ReportData | null
+  region?: string
 }

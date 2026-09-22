@@ -33,3 +33,4 @@ class ChatResponse(BaseModel):
     history: List[Dict[str, Any]] = Field(default_factory=list)
     price_data: Optional[PriceEstimate] = Field(default=None)
     report_data: Optional[ReportReviewData] = Field(default=None)
+    region: Optional[str] = Field(default=None)

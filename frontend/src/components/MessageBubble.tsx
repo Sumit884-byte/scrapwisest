@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { ChatMessage, PriceData } from '../lib/types'
-import { isSpeechSynthesisSupported, speakText, cancelSpeech } from '../lib/speech'
+import { speakReply, cancelSpeech } from '../lib/speech'
+import { readSettings } from '../lib/settings'
 
 interface Props {
   message: ChatMessage
@@ -13,6 +14,7 @@ interface Props {
  *  "Not sent / Retry" affordance. Assistant messages include a Listen button. */
 export function MessageBubble({ message, onRetry, onFollowUp }: Props) {
   const [isPlaying, setIsPlaying] = useState(false)
+  const playingRef = useRef(false)
   const isUser = message.role === 'user'
   const time = new Date(message.timestamp).toLocaleTimeString([], {
     hour: '2-digit',
@@ -20,13 +22,18 @@ export function MessageBubble({ message, onRetry, onFollowUp }: Props) {
   })
 
   const handleToggleSpeak = () => {
-    if (isPlaying) {
+    if (playingRef.current) {
+      playingRef.current = false
       cancelSpeech()
       setIsPlaying(false)
-    } else {
-      setIsPlaying(true)
-      speakText(message.text, () => setIsPlaying(false))
+      return
     }
+    playingRef.current = true
+    setIsPlaying(true)
+    void speakReply(message.text, () => {
+      playingRef.current = false
+      setIsPlaying(false)
+    })
   }
 
   if (isUser) {
@@ -73,7 +80,7 @@ export function MessageBubble({ message, onRetry, onFollowUp }: Props) {
         )}
         <div className="mt-1.5 flex items-center justify-between gap-4">
           <p className="text-[10px] text-slate-400">{time}</p>
-          {isSpeechSynthesisSupported() && message.text && (
+          {message.text && (
             <button
               type="button"
               onClick={handleToggleSpeak}
@@ -89,12 +96,21 @@ export function MessageBubble({ message, onRetry, onFollowUp }: Props) {
   )
 }
 
-function materialLabel(value: string): string {
-  return value
-    .replace(/^plastic_/, '')
-    .replace(/^metal_/, '')
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+function materialLabel(value: string, language: string): string {
+  const key = value.replace(/^plastic_/, '').replace(/^metal_/, '').replace(/_/g, ' ')
+  if (language === 'hi') {
+    const hindi: Record<string, string> = {
+      pet: 'पीईटी',
+      hdpe: 'एचडीपीई',
+      aluminum: 'एल्युमिनियम',
+      steel: 'स्टील',
+      glass: 'कांच',
+      cardboard: 'गत्ता',
+      'mixed paper': 'कागज',
+    }
+    return hindi[key.toLowerCase()] ?? key
+  }
+  return key.replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
 function tierLabel(tier: string): string {
@@ -109,28 +125,70 @@ function confidenceLabel(value: number): string {
   return 'Early estimate'
 }
 
+function hindiPlace(location: string): string {
+  const map: Record<string, string> = {
+    india: 'भारत',
+    pakistan: 'पाकिस्तान',
+    bangladesh: 'बांग्लादेश',
+    nepal: 'नेपाल',
+    kolkata: 'कोलकाता',
+    calcutta: 'कोलकाता',
+    mumbai: 'मुंबई',
+    delhi: 'दिल्ली',
+    karachi: 'कराची',
+    lahore: 'लाहौर',
+  }
+  return location
+    .split(/([,\s]+)/)
+    .map((part) => map[part.trim().toLowerCase()] ?? part)
+    .join('')
+    .replace(/\s+,/g, ',')
+    .trim()
+}
+
 function PriceCard({ data }: { data: PriceData }) {
+  const language = readSettings().language
+  const hindi = language === 'hi'
   const low = Math.round(data.min_price_per_kg ?? data.estimated_price_per_kg)
   const high = Math.round(data.max_price_per_kg ?? data.estimated_price_per_kg)
   const sampleCount = data.local_report_count || data.city_report_count
+  const place =
+    !data.location || data.location.toLowerCase() === 'unknown'
+      ? hindi
+        ? 'आम शहर का भाव'
+        : 'Typical city rate'
+      : hindi
+        ? hindiPlace(data.location)
+        : data.location
 
   return (
     <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Estimated scrap rate</p>
-          <p className="mt-0.5 text-sm font-semibold text-slate-800">{materialLabel(data.material_type)}</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+            {hindi ? 'कबाड़ भाव' : 'Estimated scrap rate'}
+          </p>
+          <p className="mt-0.5 text-sm font-semibold text-slate-800">
+            {materialLabel(data.material_type, language)}
+          </p>
         </div>
-        <p className="text-right text-lg font-bold text-emerald-800">{data.estimated_price_per_kg} PKR/kg</p>
+        <p className="text-right text-lg font-bold text-emerald-800">
+          {hindi
+            ? `${data.estimated_price_per_kg} रुपए/किलो`
+            : `${data.estimated_price_per_kg} PKR/kg`}
+        </p>
       </div>
       <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-slate-600">
-        <span>Observed range: {low}–{high}</span>
-        <span className="text-right">{confidenceLabel(data.confidence)}</span>
-        <span>{data.location}</span>
-        <span className="text-right">{sampleCount} report{sampleCount === 1 ? '' : 's'}</span>
+        <span>{hindi ? `रेंज: ${low}–${high}` : `Observed range: ${low}–${high}`}</span>
+        <span className="text-right">{hindi ? 'अनुमान' : confidenceLabel(data.confidence)}</span>
+        <span>{place}</span>
+        <span className="text-right">
+          {hindi ? `${sampleCount} रिपोर्ट` : `${sampleCount} report${sampleCount === 1 ? '' : 's'}`}
+        </span>
       </div>
       <p className="mt-2 text-[11px] text-slate-500">
-        Source: {tierLabel(data.tier_used)}{data.used_external_context ? ' + Tavily market context' : ''}
+        {hindi ? 'स्रोत: इलाके की रिपोर्ट' : `Source: ${tierLabel(data.tier_used)}`}
+        {!hindi && data.used_external_context ? ' + Tavily market context' : ''}
       </p>
       {data.external_sources && data.external_sources.length > 0 && (
         <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1">
@@ -158,7 +216,7 @@ function ReportReviewCard({
   data: NonNullable<ChatMessage['reportData']>
   onFollowUp: (text: string) => void
 }) {
-  const label = materialLabel(data.material_type)
+  const label = materialLabel(data.material_type, readSettings().language)
   const needsReview = data.needs_confirmation || data.is_anomalous
 
   return (

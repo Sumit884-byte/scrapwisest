@@ -57,11 +57,25 @@ class Settings(BaseSettings):
     # ML Classifier & Anomaly Model Paths
     ISOLATION_FOREST_PATH: Path = _BACKEND_DIR / "models" / "isolation_forest.pkl"
     CLASSIFIER_DIR: Path = _BACKEND_DIR / "models" / "classifier"
-    CLASSIFIER_MODEL_PATH: Path = _BACKEND_DIR / "models" / "classifier" / "scrapsense_model.keras"
+    CLASSIFIER_MODEL_PATH: Path = _BACKEND_DIR / "models" / "classifier" / "scrapwisest_model.keras"
     CLASSIFIER_CONFIG_PATH: Path = _BACKEND_DIR / "models" / "classifier" / "config.json"
 
     # LLM Provider Selection: "xkiro" (default, free Qwen models) or "nebius" (Nemotron models)
     LLM_PROVIDER: str = "xkiro"
+
+    def resolved_llm_provider(self) -> str:
+        """Use the declared provider when its key exists; otherwise the other key."""
+        declared = (self.LLM_PROVIDER or "xkiro").strip().lower()
+        has_nebius = bool(self.NEBIUS_API_KEY.strip())
+        has_xkiro = bool(self.XKIRO_API_KEY.strip())
+        wants_nebius = declared in {"nebius", "nemotron", "nebius-token-factory"}
+        if wants_nebius:
+            if has_nebius or not has_xkiro:
+                return "nebius"
+            return "xkiro"
+        if has_xkiro or not has_nebius:
+            return "xkiro"
+        return "nebius"
 
     # xKiro API Gateway (Qwen models) — https://xkiro.com/dashboard/api-keys
     XKIRO_API_KEY: str = ""
@@ -75,11 +89,22 @@ class Settings(BaseSettings):
     # Nebius Token Factory / LLM Settings (Nemotron models)
     NEBIUS_API_KEY: str = ""
     TAVILY_API_KEY: str = ""
+    GROQ_API_KEY: str = ""
+    GROQ_WHISPER_MODEL: str = "whisper-large-v3"
+    GROQ_STT_FIX_MODEL: str = "llama-3.1-8b-instant"
+    GROQ_VISION_MODEL: str = "qwen/qwen3.8-27b"
+    SARVAM_API_KEY: str = ""
+    SARVAM_STT_MODEL: str = "saaras:v3"
+    SARVAM_STT_MODE: str = "transcribe"
+    SARVAM_TTS_MODEL: str = "bulbul:v3"
+    SARVAM_TTS_SPEAKER: str = "priya"
     NEMOTRON_NANO_MODEL: str = "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
     NEMOTRON_SUPER_MODEL: str = "nvidia/nemotron-3-super-120b-a12b"
     NEMOTRON_ULTRA_MODEL: str = "nvidia/Nemotron-3-Ultra-550b-a55b"
     NEBIUS_NANO_BASE_URL: str = "https://api.tokenfactory.eu-north1.nebius.com/v1/"
     NEBIUS_REASONING_BASE_URL: str = "https://api.tokenfactory.us-central1.nebius.com/v1/"
+    TOKEN_FACTORY_DEFAULT_REGION: str = "us-central1"
+    PIN_TOKEN_FACTORY_REGION: bool = False
     NEBIUS_REQUEST_TIMEOUT: float = 15.0
     NEBIUS_MAX_RETRIES: int = 2
     ENABLE_LLM_FALLBACKS: bool = True
