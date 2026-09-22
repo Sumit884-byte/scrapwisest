@@ -1,11 +1,13 @@
 /**
- * Minimal client for the ScrapSense FastAPI backend.
+ * Minimal client for the Scrapwisest FastAPI backend.
  *
- * The backend only exposes two endpoints:
- *   POST /chat   (multipart form: message, picker_id, optional image)
+ * Backend routes used by the client:
+ *   POST /chat        (multipart form: message, picker_id, optional image)
  *   GET  /health
+ *   POST /transcribe  (audio file → text + detected language)
+ *   POST /speak       (text + optional language → mp3)
  *
- * In dev, the Vite server proxies /chat and /health to the FastAPI backend
+ * In dev, the Vite server proxies these to the FastAPI backend
  * (see vite.config.ts), so requests stay same-origin here. In production,
  * set VITE_API_BASE to the backend origin and the same paths are used.
  */
@@ -18,6 +20,10 @@ export interface PostChatArgs {
   text: string
   image: File | null
   pickerId: string
+  region?: string | null
+  language?: string | null
+  city?: string | null
+  country?: string | null
 }
 
 /**
@@ -44,10 +50,22 @@ async function parseDetail(res: Response): Promise<string> {
   }
 }
 
-export async function postChat({ text, image, pickerId }: PostChatArgs): Promise<ChatResponse> {
+export async function postChat({
+  text,
+  image,
+  pickerId,
+  region,
+  language,
+  city,
+  country,
+}: PostChatArgs): Promise<ChatResponse> {
   const form = new FormData()
   if (text.trim()) form.append('message', text)
   form.append('picker_id', pickerId)
+  if (region) form.append('region', region)
+  if (language && language !== 'auto') form.append('language', language)
+  if (city?.trim()) form.append('city', city.trim())
+  if (country?.trim()) form.append('country', country.trim())
   if (image) form.append('image', image)
 
   const res = await fetch(`${BASE}/chat`, { method: 'POST', body: form })
@@ -55,4 +73,37 @@ export async function postChat({ text, image, pickerId }: PostChatArgs): Promise
     throw new ApiError(res.status, await parseDetail(res))
   }
   return (await res.json()) as ChatResponse
+}
+
+export interface Transcript {
+  text: string
+  language: string
+}
+
+export async function transcribeAudio(audio: Blob): Promise<Transcript> {
+  const form = new FormData()
+  const ext = audio.type.includes('mp4') ? 'mp4' : 'webm'
+  form.append('file', audio, `clip.${ext}`)
+
+  const res = await fetch(`${BASE}/transcribe`, { method: 'POST', body: form })
+  if (!res.ok) {
+    throw new ApiError(res.status, await parseDetail(res))
+  }
+  return (await res.json()) as Transcript
+}
+
+export async function fetchSpeech(
+  text: string,
+  language?: string,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  const form = new FormData()
+  form.append('text', text)
+  if (language) form.append('language', language)
+
+  const res = await fetch(`${BASE}/speak`, { method: 'POST', body: form, signal })
+  if (!res.ok) {
+    throw new ApiError(res.status, await parseDetail(res))
+  }
+  return await res.blob()
 }

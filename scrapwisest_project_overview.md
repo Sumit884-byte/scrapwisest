@@ -1,4 +1,4 @@
-# ScrapSense — Project Overview
+# Scrapwisest — Project Overview
 
 A price-transparency tool for waste pickers, built as an agentic AI system with a deliberate mix of LLM reasoning and deterministic code.
 

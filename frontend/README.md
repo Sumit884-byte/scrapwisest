@@ -14,7 +14,7 @@ npm install
 npm run dev        # http://localhost:5173
 ```
 
-The Vite dev server proxies `/chat` and `/health` to the FastAPI backend at `http://localhost:8000` (see `vite.config.ts`). Start the backend first:
+The Vite dev server proxies `/chat`, `/health`, `/transcribe`, and `/speak` to the FastAPI backend at `http://localhost:8000` (see `vite.config.ts`). Start the backend first:
 
 ```bash
 # from the repo root

@@ -15,8 +15,7 @@ logger = logging.getLogger(__name__)
 
 def get_active_provider_module():
     """Returns the module corresponding to the active LLM provider."""
-    provider = (settings.LLM_PROVIDER or "xkiro").strip().lower()
-    if provider in ("nebius", "nemotron", "nebius-token-factory"):
+    if settings.resolved_llm_provider() == "nebius":
         return nemotron
     return qwen
 

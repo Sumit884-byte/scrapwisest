@@ -1,5 +1,5 @@
 """
-FastAPI entrypoint for ScrapSense.
+FastAPI entrypoint for Scrapwisest.
 Re-exports the modular app from app.main while maintaining full backwards compatibility.
 """
 

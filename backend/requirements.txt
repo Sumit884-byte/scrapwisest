@@ -17,3 +17,5 @@ scikit-learn
 sqlalchemy
 aiosqlite
 alembic
+groq
+edge-tts

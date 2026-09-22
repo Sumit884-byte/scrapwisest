@@ -1,5 +1,5 @@
 """
-Anomaly Detection service for ScrapSense.
+Anomaly Detection service for Scrapwisest.
 Implements the multi-tiered anomaly detection logic:
   1. Deterministic bounds check against regional median
   2. Machine Learning scoring using Isolation Forest

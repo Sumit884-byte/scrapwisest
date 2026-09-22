@@ -1,11 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ChangeEvent, KeyboardEvent } from 'react'
+import type { ChangeEvent, DragEvent, KeyboardEvent } from 'react'
 import type { PendingImage } from '../lib/types'
-import { isSpeechSupported, startDictation } from '../lib/speech'
+import { ApiError, transcribeAudio } from '../lib/api'
+import { setDetectedLang } from '../lib/language'
+import {
+  isMicSupported,
+  isRecordingSupported,
+  isSpeechSupported,
+  startDictation,
+  startRecording,
+  type ActiveRecording,
+} from '../lib/speech'
 
 interface Props {
   disabled: boolean
   onSend: (text: string, image: File | null) => void
+  speechLocale?: string
 }
 
 function PhotoIcon() {
@@ -21,19 +31,34 @@ function MicrophoneIcon() {
 const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024
 
-export function Composer({ disabled, onSend }: Props) {
+function isAcceptedImage(file: File): boolean {
+  if (ACCEPTED_TYPES.includes(file.type)) return true
+  return /\.(jpe?g|png|webp)$/i.test(file.name)
+}
+
+function firstDroppedImage(event: DragEvent): File | null {
+  const files = event.dataTransfer?.files
+  if (!files?.length) return null
+  return Array.from(files).find((file) => isAcceptedImage(file) || file.type.startsWith('image/')) ?? files[0]
+}
+
+export function Composer({ disabled, onSend, speechLocale = 'en-IN' }: Props) {
   const [text, setText] = useState('')
   const [image, setImage] = useState<PendingImage | null>(null)
   const [listening, setListening] = useState(false)
+  const [transcribing, setTranscribing] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const taRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const stopRef = useRef<(() => void) | null>(null)
+  const recordingRef = useRef<ActiveRecording | null>(null)
   const imageRef = useRef<PendingImage | null>(null)
+  const dragDepthRef = useRef(0)
   imageRef.current = image
 
-  const speechSupported = isSpeechSupported()
+  const micSupported = isMicSupported()
 
   // Revoke the preview object URL on unmount (new URL from the last render).
   useEffect(() => {
@@ -55,13 +80,10 @@ export function Composer({ disabled, onSend }: Props) {
     autoResize()
   }
 
-  const pickImage = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    event.target.value = '' // allow re-selecting the same file
-    if (!file) return
-
-    if (!ACCEPTED_TYPES.includes(file.type)) {
-      setError('Please choose a JPG, PNG, or WebP photo.')
+  const attachImage = (file: File | null | undefined) => {
+    if (!file || disabled) return
+    if (!isAcceptedImage(file)) {
+      setError('Please drop a JPG, PNG, or WebP photo.')
       return
     }
     if (file.size > MAX_IMAGE_BYTES) {
@@ -69,9 +91,47 @@ export function Composer({ disabled, onSend }: Props) {
       return
     }
 
-    if (image) URL.revokeObjectURL(image.previewUrl)
+    const current = imageRef.current
+    if (current) URL.revokeObjectURL(current.previewUrl)
     setImage({ file, previewUrl: URL.createObjectURL(file) })
     setError(null)
+  }
+
+  const pickImage = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = '' // allow re-selecting the same file
+    attachImage(file)
+  }
+
+  const hasFilePayload = (event: DragEvent) =>
+    Array.from(event.dataTransfer?.types ?? []).includes('Files')
+
+  const handleDragEnter = (event: DragEvent<HTMLDivElement>) => {
+    if (disabled || !hasFilePayload(event)) return
+    event.preventDefault()
+    dragDepthRef.current += 1
+    setDragOver(true)
+  }
+
+  const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
+    if (disabled || !hasFilePayload(event)) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'copy'
+  }
+
+  const handleDragLeave = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasFilePayload(event)) return
+    event.preventDefault()
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+    if (dragDepthRef.current === 0) setDragOver(false)
+  }
+
+  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    dragDepthRef.current = 0
+    setDragOver(false)
+    if (disabled) return
+    attachImage(firstDroppedImage(event))
   }
 
   const clearImage = () => {
@@ -79,24 +139,72 @@ export function Composer({ disabled, onSend }: Props) {
     setImage(null)
   }
 
-  const startListening = () => {
-    setError(null)
+  const startBrowserDictation = () => {
     setListening(true)
-    stopRef.current = startDictation({
-      onResult: (interim, final) => {
-        setText(final + interim)
+    stopRef.current = startDictation(
+      {
+        onResult: (interim, final) => {
+          setText(final + interim)
+        },
+        onEnd: () => setListening(false),
+        onError: (code) => {
+          setListening(false)
+          if (code === 'not-allowed') setError('Microphone permission was denied.')
+          else if (code === 'unsupported') setError('Voice input is not supported in this browser.')
+          else setError('Could not hear anything — please type instead.')
+        },
       },
-      onEnd: () => setListening(false),
-      onError: (code) => {
-        setListening(false)
-        if (code === 'not-allowed') setError('Microphone permission was denied.')
-        else if (code === 'unsupported') setError('Voice input is not supported in this browser.')
-        else setError('Could not hear anything — please type instead.')
-      },
-    })
+      speechLocale,
+    )
   }
 
-  const stopListening = () => {
+  const startListening = async () => {
+    setError(null)
+    if (isRecordingSupported()) {
+      try {
+        recordingRef.current = await startRecording()
+        setListening(true)
+        return
+      } catch {
+        recordingRef.current = null
+        if (!isSpeechSupported()) {
+          setError('Microphone permission was denied.')
+          return
+        }
+      }
+    }
+    if (isSpeechSupported()) startBrowserDictation()
+    else setError('Voice input is not supported in this browser.')
+  }
+
+  const stopListening = async () => {
+    const recording = recordingRef.current
+    recordingRef.current = null
+    if (recording) {
+      setListening(false)
+      setTranscribing(true)
+      try {
+        const blob = await recording.stop()
+        const result = await transcribeAudio(blob)
+        setDetectedLang(result.language)
+        setText((prev) => {
+          const next = prev.trim() ? `${prev.trim()} ${result.text}` : result.text
+          return next
+        })
+        requestAnimationFrame(autoResize)
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 503 && isSpeechSupported()) {
+          startBrowserDictation()
+        } else if (err instanceof ApiError) {
+          setError(err.message)
+        } else {
+          setError('Could not hear anything — please type instead.')
+        }
+      } finally {
+        setTranscribing(false)
+      }
+      return
+    }
     stopRef.current?.()
     setListening(false)
   }
@@ -107,7 +215,7 @@ export function Composer({ disabled, onSend }: Props) {
       setError('Type a message or attach a photo first.')
       return
     }
-    if (listening) stopListening()
+    if (listening) void stopListening()
     onSend(trimmed, image?.file ?? null)
     setText('')
     if (image) URL.revokeObjectURL(image.previewUrl)
@@ -125,8 +233,19 @@ export function Composer({ disabled, onSend }: Props) {
   const canSend = Boolean(text.trim() || image)
 
   return (
-    <div className="border-t border-[#d9d5ca] bg-[#fbfaf6]">
+    <div
+      className="border-t border-[#d9d5ca] bg-[#fbfaf6]"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <div className="mx-auto w-full max-w-5xl px-4 pb-[max(0.9rem,env(safe-area-inset-bottom))] pt-3 sm:px-7 lg:px-10">
+        {dragOver && (
+          <p className="mb-2 rounded-xl border border-dashed border-[#8bae57] bg-[#eef4e2] px-3 py-2 text-center text-[12px] font-medium text-[#3f6b4c]">
+            Drop a photo to attach it
+          </p>
+        )}
         {error && (
           <p className="mb-2 text-center text-[12px] font-medium text-red-600" role="alert">
             {error}
@@ -156,7 +275,11 @@ export function Composer({ disabled, onSend }: Props) {
         )}
 
         <div className="flex items-end gap-2">
-          <div className="composer-shell flex flex-1 items-end gap-1.5 px-1.5 py-1.5">
+          <div
+            className={`composer-shell flex flex-1 items-end gap-1.5 px-1.5 py-1.5 ${
+              dragOver ? 'ring-2 ring-[#8bae57] ring-offset-2 ring-offset-[#fbfaf6]' : ''
+            }`}
+          >
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
@@ -175,19 +298,30 @@ export function Composer({ disabled, onSend }: Props) {
               placeholder="Ask a rate or log a sale…"
               className="max-h-[132px] flex-1 resize-none bg-transparent py-1.5 text-[15px] text-[#1d2a22] placeholder:text-[#9aa196] focus:outline-none"
             />
-            {speechSupported && (
+            {micSupported && (
               <button
                 type="button"
-                onClick={listening ? stopListening : startListening}
-                disabled={disabled}
+                onClick={() => {
+                  if (listening) void stopListening()
+                  else void startListening()
+                }}
+                disabled={disabled || transcribing}
                 aria-label={listening ? 'Stop voice input' : 'Speak a message'}
-                className={`rounded-full p-2 text-lg leading-none transition disabled:opacity-40 ${
+                className={`rounded-xl p-2 text-lg leading-none transition disabled:opacity-40 ${
                   listening
                     ? 'animate-pulse bg-red-500 text-white'
-                    : 'text-[#647062] hover:bg-[#e4e5d9]'
+                    : transcribing
+                      ? 'text-[#3f6b4c]'
+                      : 'text-[#647062] hover:bg-[#e4e5d9]'
                 }`}
               >
-                {listening ? <span className="composer-stop">■</span> : <MicrophoneIcon />}
+                {listening ? (
+                  <span className="composer-stop">■</span>
+                ) : transcribing ? (
+                  <span aria-hidden="true">…</span>
+                ) : (
+                  <MicrophoneIcon />
+                )}
               </button>
             )}
           </div>

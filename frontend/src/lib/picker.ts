@@ -7,7 +7,7 @@
  * forever — never regenerated per session or per message.
  */
 
-const STORAGE_KEY = 'scrapsense_picker_id'
+const STORAGE_KEY = 'scrapwisest_picker_id'
 
 export function uuid(): string {
   const c = globalThis.crypto

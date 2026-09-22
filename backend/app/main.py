@@ -1,5 +1,5 @@
 """
-FastAPI entrypoint for ScrapSense / Scrapwisest platform.
+FastAPI entrypoint for the Scrapwisest platform.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api.endpoints import chat, health
+from app.api.endpoints import chat, health, voice
 from app.api.router import api_router
 from app.core.config import settings
 from app.core.exceptions import AppException, app_exception_handler, unhandled_exception_handler
@@ -59,6 +59,7 @@ app.include_router(api_router, prefix=settings.API_V1_STR)
 # Root-level endpoints for direct frontend & test backwards-compatibility
 app.include_router(chat.router)
 app.include_router(health.router)
+app.include_router(voice.router)
 
 # Serve SPA static build when present
 _static_candidates = (

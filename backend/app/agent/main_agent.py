@@ -1,5 +1,5 @@
 """
-ScrapSense main agent definition and orchestration.
+Scrapwisest main agent definition and orchestration.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from deepagents import create_deep_agent
 from deepagents.backends import CompositeBackend, StateBackend, StoreBackend
 
 from app.agent.models import routing_info, super_model
+from app.agent.nemotron import everyday_model, resolve_region
 from app.agent.persistence import checkpointer, store
 from app.agent.prompts.system_prompt_en import SYSTEM_PROMPT_EN
 from app.agent.tools.price_estimator import estimate_price
@@ -40,29 +41,47 @@ backend = CompositeBackend(
 
 SYSTEM_PROMPT = SYSTEM_PROMPT_EN
 
-_agent = None
+_agents: dict[str, object] = {}
 
 
-def get_agent():
-    """Build the deep agent copilot on first chat, not at import time."""
-    global _agent
-    if _agent is None:
-        provider_name = settings.LLM_PROVIDER
+def _is_nebius() -> bool:
+    return settings.resolved_llm_provider() == "nebius"
+
+
+def get_agent(region_id: str | None = None):
+    """Build the deep agent on first chat. Nebius can pin a Token Factory region."""
+    if _is_nebius():
+        cache_key = f"nebius:{resolve_region(region_id)}"
+    else:
+        cache_key = "xkiro"
+
+    cached = _agents.get(cache_key)
+    if cached is not None:
+        return cached
+
+    if _is_nebius():
+        region = resolve_region(region_id)
+        model = everyday_model(region)
+        logger.info("Initializing Scrapwisest deep agent on Nebius region %s...", region)
+    else:
+        model = super_model()
         model_name = routing_info().get("everyday", {}).get("model", "unknown")
-        logger.info("Initializing ScrapSense deep agent with %s (%s)...", provider_name, model_name)
-        _agent = create_deep_agent(
-            model=super_model(),
-            system_prompt=SYSTEM_PROMPT,
-            subagents=[scrap_pipeline_agent],
-            tools=[estimate_price, search_scrap_market_news],
-            context_schema=AgentContext,
-            checkpointer=checkpointer,
-            store=store,
-            backend=backend,
-            memory=["/memories/picker_notes.md"],
-        )
-        logger.info("Deep agent initialized successfully.")
-    return _agent
+        logger.info("Initializing Scrapwisest deep agent with xKiro (%s)...", model_name)
+
+    agent = create_deep_agent(
+        model=model,
+        system_prompt=SYSTEM_PROMPT,
+        subagents=[scrap_pipeline_agent],
+        tools=[estimate_price, search_scrap_market_news],
+        context_schema=AgentContext,
+        checkpointer=checkpointer,
+        store=store,
+        backend=backend,
+        memory=["/memories/picker_notes.md"],
+    )
+    _agents[cache_key] = agent
+    logger.info("Deep agent initialized (%s).", cache_key)
+    return agent
 
 
 if __name__ == "__main__":

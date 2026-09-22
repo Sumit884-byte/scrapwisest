@@ -1,5 +1,5 @@
 """
-Subagent definitions for ScrapSense workflows.
+Subagent definitions for Scrapwisest workflows.
 """
 
 from __future__ import annotations

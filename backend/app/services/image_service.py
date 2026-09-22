@@ -1,13 +1,15 @@
 """
-Image processing and classification service for ScrapSense.
+Image processing and classification service for Scrapwisest.
 Handles image file uploads, format/size validation, and CNN classification inference.
 """
 
 from __future__ import annotations
 
+import base64
 import io
 import json
 import logging
+import re
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -46,11 +48,137 @@ CNN_LABEL_MAP = {
 }
 
 AMBIGUOUS_CNN_LABELS = {"plastic", "metal"}
+VISION_LABELS = {"cardboard", "glass", "metal", "paper", "plastic", "trash", "unknown"}
+_VISION_PROMPT = (
+    "You grade scrap photos for a waste-picker app. Look at the image and "
+    "return ONLY JSON: {\"label\": \"<one>\", \"confidence\": <0-1>}. "
+    "label must be one of: plastic, metal, glass, paper, cardboard, trash, unknown. "
+    "Use plastic for bottles, containers, toys, and other plastic items. "
+    "Use metal for cans, steel, or aluminum. Use trash for mixed junk that is "
+    "not a recyclable scrap pile. Use unknown if you cannot tell."
+)
 
 
 def map_classifier_label(label: str) -> Optional[str]:
     """Map CNN labels to supported market materials without guessing subtypes."""
     return CNN_LABEL_MAP.get(label.strip().lower())
+
+
+def _strip_json_wrapper(text: str) -> str:
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```[a-zA-Z0-9_-]*\n?", "", cleaned)
+        cleaned = re.sub(r"\n?```$", "", cleaned).strip()
+    return cleaned
+
+
+def parse_vision_classification(raw: str) -> Optional[dict]:
+    """Parse a vision model JSON payload into a classifier-style result."""
+    try:
+        payload = json.loads(_strip_json_wrapper(raw))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    label = str(payload.get("label", "")).strip().lower()
+    if label not in VISION_LABELS:
+        return None
+    try:
+        confidence = float(payload.get("confidence", 0.5))
+    except (TypeError, ValueError):
+        confidence = 0.5
+    confidence = max(0.0, min(1.0, confidence))
+    return classification_from_label(label, confidence, source="vision")
+
+
+def classification_from_label(label: str, confidence: float, source: str) -> dict:
+    if label == "unknown":
+        return {"error": "low_confidence", "confidence": confidence, "source": source}
+
+    normalized = map_classifier_label(label)
+    if normalized is None:
+        if label in AMBIGUOUS_CNN_LABELS:
+            return {
+                "error": "ambiguous_material",
+                "category": label,
+                "confidence": confidence,
+                "source": source,
+            }
+        return {
+            "error": "unsupported_material",
+            "category": label,
+            "confidence": confidence,
+            "source": source,
+        }
+    return {"material_type": normalized, "confidence": confidence, "source": source}
+
+
+def _vision_configured() -> bool:
+    return bool(settings.GROQ_API_KEY.strip())
+
+
+def _image_data_url(image_path: str) -> str:
+    with Image.open(image_path) as img:
+        frame = img.convert("RGB")
+        frame.thumbnail((1280, 1280))
+        buf = io.BytesIO()
+        frame.save(buf, format="JPEG", quality=85)
+    encoded = base64.b64encode(buf.getvalue()).decode("ascii")
+    return f"data:image/jpeg;base64,{encoded}"
+
+
+def classify_with_vision(image_path: str) -> dict:
+    """Grade a photo with Groq vision when the local CNN is unavailable."""
+    if not _vision_configured():
+        return {"error": "classifier_unavailable"}
+    try:
+        from groq import Groq
+
+        client = Groq(api_key=settings.GROQ_API_KEY.strip())
+        models = []
+        for mid in (
+            settings.GROQ_VISION_MODEL,
+            "qwen/qwen3.8-27b",
+            "meta-llama/llama-4-scout-17b-16e-instruct",
+        ):
+            if mid and mid not in models:
+                models.append(mid)
+        last_error: Exception | None = None
+        completion = None
+        for model in models:
+            try:
+                completion = client.chat.completions.create(
+                    model=model,
+                    temperature=0,
+                    max_completion_tokens=128,
+                    response_format={"type": "json_object"},
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": _VISION_PROMPT},
+                                {"type": "image_url", "image_url": {"url": _image_data_url(image_path)}},
+                            ],
+                        }
+                    ],
+                )
+                logger.info("Vision classification used model %s", model)
+                break
+            except Exception as exc:
+                last_error = exc
+                logger.warning("Vision model %s failed: %s", model, exc)
+        if completion is None:
+            raise last_error or RuntimeError("No vision model available")
+        raw = (completion.choices[0].message.content or "").strip()
+        parsed = parse_vision_classification(raw)
+        if parsed is None:
+            logger.warning("Vision classifier returned unusable payload")
+            return {"error": "classification_failed", "source": "vision"}
+        logger.info("Classification completed via vision model: %s", parsed)
+        return parsed
+    except Exception:
+        logger.exception("Vision classification failed")
+        return {"error": "classification_failed", "source": "vision"}
 
 
 def load_classifier_bundle() -> Optional[ClassifierBundle]:
@@ -160,43 +288,23 @@ class ImageService:
             self._bundle = load_classifier_bundle()
 
         if self._bundle is None:
-            logger.warning("CNN classifier is not available. Asking the picker instead.")
-            return {"error": "classifier_unavailable"}
+            logger.warning("CNN classifier is not available. Using vision fallback.")
+            return classify_with_vision(image_path)
 
         try:
             label, confidence = predict_material(self._bundle, image_path)
-            if label == "unknown":
-                logger.info("CNN was below the open-set threshold. Not guessing.")
-                return {
-                    "error": "low_confidence",
-                    "confidence": confidence,
-                    "source": "cnn",
-                }
-
-            normalized = map_classifier_label(label)
-            if normalized is None:
-                if label in AMBIGUOUS_CNN_LABELS:
-                    logger.info("CNN category '%s' needs picker subtype clarification", label)
-                    return {
-                        "error": "ambiguous_material",
-                        "category": label,
-                        "confidence": confidence,
-                        "source": "cnn",
-                    }
-                logger.info("CNN label '%s' is not a supported recyclable material", label)
-                return {
-                    "error": "unsupported_material",
-                    "category": label,
-                    "confidence": confidence,
-                    "source": "cnn",
-                }
-
-            res = {"material_type": normalized, "confidence": confidence, "source": "cnn"}
-            logger.info("Classification completed via CNN model: %s", res)
-            return res
+            result = classification_from_label(label, confidence, source="cnn")
+            if result.get("error") in {"low_confidence", "unsupported_material"}:
+                logger.info("CNN was inconclusive (%s). Trying vision fallback.", result["error"])
+                vision = classify_with_vision(image_path)
+                if "error" not in vision or vision.get("error") == "ambiguous_material":
+                    return vision
+            if "error" not in result:
+                logger.info("Classification completed via CNN model: %s", result)
+            return result
         except Exception:
             logger.exception("Error running prediction in ImageService")
-            return {"error": "classification_failed"}
+            return classify_with_vision(image_path)
 
     def cleanup_image(self, image_path: str) -> None:
         """Remove a temporary upload after classification has finished."""
@@ -217,17 +325,59 @@ class ImageService:
         ur = names[1] if len(names) > 1 else ""
         return f"{en} ({ur})" if ur else en
 
-    def format_classification_reply(self, result: dict) -> str:
+    def format_classification_reply(self, result: dict, language: str = "") -> str:
         """Static, no-LLM reply for the photo-only path."""
+        lang = (language or "").strip().lower()
+        name = self.friendly_name(result.get("material_type", "")) if "material_type" in result else ""
         if result.get("error") == "ambiguous_material":
             category = result.get("category", "material")
             if category == "plastic":
+                if lang == "hi":
+                    return "यह प्लास्टिक लगता है। PET है या HDPE?"
+                if lang == "hi-latn":
+                    return "Yeh plastic lag raha hai. PET hai ya HDPE?"
+                if lang == "ur":
+                    return "یہ پلاسٹک لگ رہا ہے۔ PET ہے یا HDPE؟"
+                if lang == "ur-latn":
+                    return "Yeh plastic lag raha hai. PET hai ya HDPE?"
+                if lang in {"te", "te-latn"}:
+                    return "Idi plastic la undi. PET aa HDPE aa?"
                 return "This looks like plastic. Is it PET or HDPE?"
             if category == "metal":
+                if lang == "hi":
+                    return "यह धातु लगता है। एल्युमिनियम है या स्टील?"
+                if lang == "hi-latn":
+                    return "Yeh metal lag raha hai. Aluminum hai ya steel?"
+                if lang == "ur":
+                    return "یہ دھات لگ رہی ہے۔ ایلومینیم ہے یا سٹیل؟"
+                if lang == "ur-latn":
+                    return "Yeh dhat lag rahi hai. Aluminum hai ya steel?"
+                if lang in {"te", "te-latn"}:
+                    return "Idi metal la undi. Aluminum aa steel aa?"
                 return "This looks like metal. Is it aluminum or steel?"
         if "error" in result:
+            if lang == "hi":
+                return "फोटो साफ नहीं पढ़ सका। यह कौन सा माल है?"
+            if lang == "hi-latn":
+                return "Photo saaf nahi padh paya. Yeh kaun sa maal hai?"
+            if lang == "ur":
+                return "تصویر صاف نہیں پڑھی۔ یہ کون سا مال ہے؟"
+            if lang == "ur-latn":
+                return "Photo saaf nahi parhi. Yeh konsa maal hai?"
+            if lang in {"te", "te-latn"}:
+                return "Photo clear ga chadhvale. Idi e material?"
             return "Sorry, I couldn't read that photo right now. What material is it?"
-        return f"That looks like: {self.friendly_name(result['material_type'])}."
+        if lang == "hi":
+            return f"यह {name} लगता है।"
+        if lang == "hi-latn":
+            return f"Yeh {name} lag raha hai."
+        if lang == "ur":
+            return f"یہ {name} لگ رہا ہے۔"
+        if lang == "ur-latn":
+            return f"Yeh {name} lag raha hai."
+        if lang in {"te", "te-latn"}:
+            return f"Idi {name} la undi."
+        return f"That looks like: {name}."
 
 
 image_service = ImageService()
@@ -241,5 +391,5 @@ def friendly_name(material: str) -> str:
     return image_service.friendly_name(material)
 
 
-def format_classification_reply(result: dict) -> str:
-    return image_service.format_classification_reply(result)
+def format_classification_reply(result: dict, language: str = "") -> str:
+    return image_service.format_classification_reply(result, language)

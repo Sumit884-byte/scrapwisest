@@ -1,15 +1,16 @@
 /**
- * Thin wrapper around the browser Web Speech API (SpeechRecognition).
+ * Voice input and playback.
  *
- * The backend has no audio pipeline, so voice input is handled entirely
- * client-side: the mic dictates into the composer's text box. Urdu is
- * preferred (ur-PK); where a browser can't transcribe it we fall back to
- * en-US, which still captures Roman-Urdu and English. Browsers without any
- * SpeechRecognition support simply don't get a mic button (isSpeechSupported).
+ * Preferred path: MediaRecorder → Sarvam (Indic) / Groq Whisper →
+ * Sarvam Bulbul (Indic) or Edge-TTS. Browser SpeechRecognition /
+ * SpeechSynthesis stay as fallbacks.
  *
- * Types are declared structurally rather than imported, because TS's DOM lib
+ * Types for SpeechRecognition are declared structurally — TS's DOM lib
  * does not expose the webkit-prefixed constructors.
  */
+
+import { fetchSpeech } from './api'
+import { getDetectedLang } from './language'
 
 export interface DictationCallbacks {
   /** Fired on each interim update. `interim` is the live fragment, `final` is all finalized text so far. */
@@ -56,6 +57,64 @@ function getRecognitionCtor(): RecognitionCtor | null {
 
 export function isSpeechSupported(): boolean {
   return getRecognitionCtor() !== null
+}
+
+export function isRecordingSupported(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof MediaRecorder !== 'undefined' &&
+    !!navigator.mediaDevices?.getUserMedia
+  )
+}
+
+export function isMicSupported(): boolean {
+  return isRecordingSupported() || isSpeechSupported()
+}
+
+export interface ActiveRecording {
+  stop: () => Promise<Blob>
+  cancel: () => void
+}
+
+export async function startRecording(): Promise<ActiveRecording> {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+  const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find((type) =>
+    MediaRecorder.isTypeSupported(type),
+  )
+  const chunks: BlobPart[] = []
+  const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined)
+
+  recorder.ondataavailable = (event) => {
+    if (event.data.size) chunks.push(event.data)
+  }
+  recorder.start()
+
+  const stopTracks = () => {
+    stream.getTracks().forEach((track) => track.stop())
+  }
+
+  return {
+    stop: () =>
+      new Promise((resolve, reject) => {
+        recorder.onstop = () => {
+          stopTracks()
+          resolve(new Blob(chunks, { type: recorder.mimeType || 'audio/webm' }))
+        }
+        recorder.onerror = () => {
+          stopTracks()
+          reject(new Error('recording-failed'))
+        }
+        recorder.stop()
+      }),
+    cancel: () => {
+      try {
+        recorder.stop()
+      } catch {
+        // Already stopped.
+      }
+      stopTracks()
+    },
+  }
 }
 
 /**
@@ -140,6 +199,13 @@ export function isSpeechSynthesisSupported(): boolean {
 /**
  * Read text aloud using browser SpeechSynthesis. Auto-detects Telugu, Urdu, or English.
  */
+function prepareSpeechText(text: string): string {
+  return text
+    .replace(/\bHDPE\b/gi, 'H D P E')
+    .replace(/\bPET\b/gi, 'P E T')
+    .replace(/\bPVC\b/gi, 'P V C')
+}
+
 export function speakText(text: string, onEnd?: () => void): () => void {
   if (!isSpeechSynthesisSupported()) {
     onEnd?.()
@@ -147,7 +213,7 @@ export function speakText(text: string, onEnd?: () => void): () => void {
   }
 
   window.speechSynthesis.cancel()
-  const utterance = new SpeechSynthesisUtterance(text)
+  const utterance = new SpeechSynthesisUtterance(prepareSpeechText(text))
   const voices = window.speechSynthesis.getVoices()
 
   const containsTelugu = /[\u0C00-\u0C7F]/.test(text)
@@ -177,8 +243,72 @@ export function speakText(text: string, onEnd?: () => void): () => void {
   }
 }
 
-export function cancelSpeech(): void {
+let currentAudio: HTMLAudioElement | null = null
+let speechToken = 0
+let currentAbort: AbortController | null = null
+
+function stopCurrentAudio(): void {
+  if (currentAudio) {
+    currentAudio.pause()
+    currentAudio.src = ''
+    currentAudio = null
+  }
   if (isSpeechSynthesisSupported()) {
     window.speechSynthesis.cancel()
+  }
+}
+
+export function cancelSpeech(): void {
+  speechToken += 1
+  currentAbort?.abort()
+  currentAbort = null
+  stopCurrentAudio()
+}
+
+/**
+ * Speak with Sarvam Bulbul (or Edge-TTS). Falls back to the browser
+ * synthesizer if the server is unavailable.
+ */
+export async function speakReply(text: string, onEnd?: () => void): Promise<() => void> {
+  const token = ++speechToken
+  currentAbort?.abort()
+  const abort = new AbortController()
+  currentAbort = abort
+  stopCurrentAudio()
+  try {
+    const blob = await fetchSpeech(text, getDetectedLang(), abort.signal)
+    if (token !== speechToken) {
+      onEnd?.()
+      return () => {}
+    }
+    const url = URL.createObjectURL(blob)
+    const audio = new Audio(url)
+    currentAudio = audio
+    const finish = () => {
+      if (currentAudio === audio) currentAudio = null
+      URL.revokeObjectURL(url)
+      if (token === speechToken) onEnd?.()
+    }
+    audio.onended = finish
+    audio.onerror = finish
+    await audio.play()
+    if (token !== speechToken) {
+      audio.pause()
+      URL.revokeObjectURL(url)
+      onEnd?.()
+      return () => {}
+    }
+    return () => {
+      cancelSpeech()
+      URL.revokeObjectURL(url)
+    }
+  } catch (error) {
+    const aborted =
+      (error instanceof DOMException && error.name === 'AbortError') || token !== speechToken
+    if (aborted) {
+      onEnd?.()
+      return () => {}
+    }
+    return speakText(text, onEnd)
   }
 }

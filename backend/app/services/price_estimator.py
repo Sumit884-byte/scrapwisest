@@ -1,5 +1,5 @@
 """
-Price Estimator service for ScrapSense.
+Price Estimator service for Scrapwisest.
 Implements the 3-tier fallback pricing chain:
   Tier 1 (local)     — median of recent reports for this material in this neighborhood
   Tier 2 (city-wide) — median across all neighborhoods in the city
