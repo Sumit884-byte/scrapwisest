@@ -324,6 +324,8 @@ async def chat(
     except Exception:
         logger.exception("Classification failed unexpectedly")
         classification = {"error": "classification_failed"}
+    finally:
+        await asyncio.to_thread(image_service.cleanup_image, image_path)
 
     # Photo only, no text -> classification IS the answer. Agent never runs.
     if not text:
@@ -334,7 +336,9 @@ async def chat(
 
     # Photo + text -> fold classification into message as fact
     logger.info("Path C: Photo + Text. Ingesting classification tag into message...")
-    if "error" in classification:
+    if classification.get("error") == "ambiguous_material":
+        tag = f"[image_material_ambiguous: {classification.get('category', 'unknown')}]"
+    elif "error" in classification:
         tag = "[image_analysis_failed]"
     else:
         tag = f"[detected_material: {classification['material_type']}, confidence: {classification['confidence']:.2f}]"

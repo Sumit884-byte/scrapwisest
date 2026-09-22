@@ -145,6 +145,12 @@ Reports submitted through `POST /api/v1/reports` now use the same deterministic
 and Isolation Forest checks as the chat workflow. Flagged REST reports are
 returned with `needs_confirmation=true` and are not added to trusted pricing.
 
+Uploaded photos are treated as temporary inputs and removed after image
+classification, including when classification fails.
+
+The visible text conversation is also restored from device-local storage after
+a page refresh. Uploaded image files are not persisted in that transcript.
+
 ---
 
 ## CI/CD

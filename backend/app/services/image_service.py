@@ -39,6 +39,20 @@ class ClassifierBundle:
     img_size: tuple
 
 
+CNN_LABEL_MAP = {
+    "cardboard": "cardboard",
+    "glass": "glass",
+    "paper": "mixed_paper",
+}
+
+AMBIGUOUS_CNN_LABELS = {"plastic", "metal"}
+
+
+def map_classifier_label(label: str) -> Optional[str]:
+    """Map CNN labels to supported market materials without guessing subtypes."""
+    return CNN_LABEL_MAP.get(label.strip().lower())
+
+
 def load_classifier_bundle() -> Optional[ClassifierBundle]:
     """Load the trained EfficientNetB0 CNN model + config if available."""
     if keras is None:
@@ -159,12 +173,41 @@ class ImageService:
                     "source": "cnn",
                 }
 
-            res = {"material_type": label, "confidence": confidence, "source": "cnn"}
+            normalized = map_classifier_label(label)
+            if normalized is None:
+                if label in AMBIGUOUS_CNN_LABELS:
+                    logger.info("CNN category '%s' needs picker subtype clarification", label)
+                    return {
+                        "error": "ambiguous_material",
+                        "category": label,
+                        "confidence": confidence,
+                        "source": "cnn",
+                    }
+                logger.info("CNN label '%s' is not a supported recyclable material", label)
+                return {
+                    "error": "unsupported_material",
+                    "category": label,
+                    "confidence": confidence,
+                    "source": "cnn",
+                }
+
+            res = {"material_type": normalized, "confidence": confidence, "source": "cnn"}
             logger.info("Classification completed via CNN model: %s", res)
             return res
         except Exception:
             logger.exception("Error running prediction in ImageService")
             return {"error": "classification_failed"}
+
+    def cleanup_image(self, image_path: str) -> None:
+        """Remove a temporary upload after classification has finished."""
+        try:
+            path = Path(image_path)
+            if path.exists():
+                path.unlink()
+                logger.info("Removed temporary image upload: %s", path)
+        except OSError:
+            # Cleanup must never turn a successful chat request into an error.
+            logger.warning("Could not remove temporary image upload: %s", image_path, exc_info=True)
 
     def friendly_name(self, material: str) -> str:
         names = settings.FRIENDLY_MATERIAL_NAMES.get(
@@ -176,6 +219,12 @@ class ImageService:
 
     def format_classification_reply(self, result: dict) -> str:
         """Static, no-LLM reply for the photo-only path."""
+        if result.get("error") == "ambiguous_material":
+            category = result.get("category", "material")
+            if category == "plastic":
+                return "This looks like plastic. Is it PET or HDPE?"
+            if category == "metal":
+                return "This looks like metal. Is it aluminum or steel?"
         if "error" in result:
             return "Sorry, I couldn't read that photo right now. What material is it?"
         return f"That looks like: {self.friendly_name(result['material_type'])}."

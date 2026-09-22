@@ -51,6 +51,40 @@ body {
   box-shadow: 0 0 0 3px #e3ead5;
 }
 
+.connection-offline {
+  color: #a94e3a;
+}
+
+.connection-offline .status-dot {
+  background: #c56b55;
+  box-shadow: 0 0 0 3px #f1ded8;
+}
+
+.connection-checking {
+  color: #8b6b3e;
+}
+
+.connection-checking .status-dot {
+  background: #d1a66c;
+  box-shadow: 0 0 0 3px #f2e7d2;
+}
+
+.theme-dark .connection-offline {
+  color: #efaa93;
+}
+
+.theme-dark .connection-offline .status-dot {
+  box-shadow: 0 0 0 3px #4a302e;
+}
+
+.theme-dark .connection-checking {
+  color: #e7c17e;
+}
+
+.theme-dark .connection-checking .status-dot {
+  box-shadow: 0 0 0 3px #4a3d2c;
+}
+
 .eyebrow,
 .section-label {
   color: #8b6b3e;
@@ -103,6 +137,29 @@ button:hover .quick-arrow {
   transform: translateX(2px);
 }
 
+.theme-toggle {
+  display: flex;
+  height: 34px;
+  width: 34px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #d4d7ca;
+  border-radius: 10px;
+  color: #637451;
+  background: #fffefa;
+  transition: background .2s ease, color .2s ease, border-color .2s ease;
+}
+
+.theme-toggle:hover {
+  border-color: #9aad7f;
+  background: #e8eadc;
+}
+
+.theme-toggle:disabled {
+  cursor: not-allowed;
+  opacity: .35;
+}
+
 .composer-shell {
   border: 1px solid #c8cbbd;
   border-radius: 16px;
@@ -131,6 +188,169 @@ button:hover .quick-arrow {
 
 .send-button:hover {
   background: #506d35;
+}
+
+/* Dark mode keeps the Scrapwisest palette warm and readable instead of using
+   pure black. */
+.theme-dark {
+  background-color: #17212b !important;
+  background-image: radial-gradient(#263640 0.65px, transparent 0.65px) !important;
+  color: #edf1e8;
+}
+
+.theme-dark header,
+.theme-dark > div:last-child {
+  border-color: #34434a;
+  background: #1d2a34;
+}
+
+.theme-dark .text-\[17px],
+.theme-dark .text-\[13px],
+.theme-dark .text-\[14px],
+.theme-dark .text-\[15px],
+.theme-dark .text-lg,
+.theme-dark .text-xl {
+  color: #edf1e8;
+}
+
+.theme-dark .text-\[11px],
+.theme-dark .text-\[12px],
+.theme-dark .text-sm,
+.theme-dark .text-slate-500,
+.theme-dark .text-\[10px] {
+  color: #aab8ad;
+}
+
+.theme-dark .hero-title {
+  color: #f1f3ec;
+}
+
+.theme-dark .hero-title span {
+  color: #b9d67b;
+}
+
+.theme-dark .theme-toggle {
+  border-color: #50615d;
+  color: #d2dfb3;
+  background: #263640;
+}
+
+.theme-dark .theme-toggle:hover {
+  background: #33474d;
+}
+
+.theme-dark .quick-category,
+.theme-dark .section-label,
+.theme-dark .eyebrow {
+  color: #d1a66c;
+}
+
+.theme-dark .quick-icon {
+  background: #33463c;
+  color: #c1dc91;
+}
+
+.theme-dark .quick-arrow {
+  color: #95aa91;
+}
+
+.theme-dark button.group {
+  border-color: #40504f;
+  background: #22313a;
+  color: #edf1e8;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, .16);
+}
+
+.theme-dark button.group:hover {
+  border-color: #7f9c65;
+  background: #2a3d40;
+}
+
+.theme-dark .composer-shell {
+  border-color: #50615d;
+  background: #22313a;
+  box-shadow: none;
+}
+
+.theme-dark .composer-shell:focus-within {
+  border-color: #91a66e;
+  box-shadow: 0 0 0 3px #344a3c;
+}
+
+.theme-dark .composer-action {
+  color: #b8c7ac;
+}
+
+.theme-dark .composer-action:hover {
+  background: #33474d;
+}
+
+.theme-dark .send-button {
+  background: #789954;
+}
+
+.theme-dark .send-button:hover {
+  background: #91ad68;
+}
+
+.theme-dark input,
+.theme-dark textarea {
+  color: #edf1e8;
+}
+
+.theme-dark .border-slate-200,
+.theme-dark .border-slate-300 {
+  border-color: #40504f;
+}
+
+.theme-dark .bg-white {
+  background-color: #22313a;
+}
+
+.theme-dark .bg-slate-800 {
+  background-color: #0f1a23;
+}
+
+.theme-dark .bg-emerald-50\/70 {
+  background-color: #243b35;
+}
+
+.theme-dark .border-emerald-200 {
+  border-color: #4c7358;
+}
+
+.theme-dark .text-emerald-800,
+.theme-dark .text-emerald-700 {
+  color: #c1dc91;
+}
+
+.theme-dark .bg-amber-50\/80 {
+  background-color: #493b27;
+}
+
+.theme-dark .border-amber-200 {
+  border-color: #8c7040;
+}
+
+.theme-dark .text-amber-800 {
+  color: #f0cf91;
+}
+
+.theme-dark .hero-copy {
+  color: #aab8ad;
+}
+
+.theme-dark .start-card {
+  border-color: #53604f;
+  background: #29372f;
+}
+
+.theme-dark .start-card p {
+  color: #edf1e8;
+}
+
+.theme-dark .start-card p:first-child {
+  color: #d1a66c;
 }
 
 button {
