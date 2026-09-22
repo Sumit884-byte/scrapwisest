@@ -1,5 +1,6 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { postChat } from './lib/api'
+import { clearConversation, readConversation, writeConversation } from './lib/conversation'
 import { getOrCreatePickerId, uuid } from './lib/picker'
 import { placeLabel, speechLocale } from './lib/settings'
 import type { ChatMessage } from './lib/types'
@@ -14,11 +15,38 @@ export default function App() {
   // Resolved once for this device — never regenerated. Drives conversation
   // continuity and the agent's long-term memory on the backend.
   const pickerId = useMemo(() => getOrCreatePickerId(), [])
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [messages, setMessages] = useState<ChatMessage[]>(() => readConversation())
   const [isSending, setIsSending] = useState(false)
+  const [darkMode, setDarkMode] = useState(() => {
+    try {
+      return localStorage.getItem('scrapwisest.theme') === 'dark'
+    } catch {
+      return false
+    }
+  })
   const { region, status: regionStatus, request: requestRegion } = useRegion()
   const { settings, update: updateSettings } = useSettings()
   const [settingsOpen, setSettingsOpen] = useState(false)
+
+  useEffect(() => {
+    writeConversation(messages)
+  }, [messages])
+
+  useEffect(() => {
+    document.documentElement.style.colorScheme = darkMode ? 'dark' : 'light'
+    try {
+      localStorage.setItem('scrapwisest.theme', darkMode ? 'dark' : 'light')
+    } catch {
+      // Theme still works for the current session if storage is unavailable.
+    }
+  }, [darkMode])
+
+  const handleClearConversation = useCallback(() => {
+    if (!messages.length) return
+    if (!window.confirm('Clear this conversation from this device?')) return
+    setMessages([])
+    clearConversation()
+  }, [messages.length])
 
   /** Send a user message (with optional photo) and append the assistant reply. */
   const handleSend = useCallback(
@@ -122,7 +150,7 @@ export default function App() {
   )
 
   return (
-    <div className="flex h-dvh flex-col bg-slate-100">
+    <div className={`flex h-dvh flex-col bg-slate-100 ${darkMode ? 'theme-dark' : ''}`}>
       <ChatHeader
         regionLabel={region?.label ?? null}
         regionStatus={regionStatus}
@@ -131,6 +159,10 @@ export default function App() {
         }}
         placeLabel={placeLabel(settings) || null}
         onOpenSettings={() => setSettingsOpen(true)}
+        darkMode={darkMode}
+        onToggleDarkMode={() => setDarkMode((value) => !value)}
+        canClearConversation={messages.length > 0}
+        onClearConversation={handleClearConversation}
       />
       <MessageList
         messages={messages}
