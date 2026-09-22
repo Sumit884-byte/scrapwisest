@@ -31,7 +31,7 @@ export function QuickActions({ onPick, disabled }: Props) {
   const visible = ACTIONS.slice(0, recommendationCount(device))
 
   return (
-    <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3" data-device={device}>
+    <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3" data-device={device}>
       {visible.map((action) => (
         <button
           key={action.text}

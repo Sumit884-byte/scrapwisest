@@ -152,6 +152,24 @@ img {
   border: 0;
 }
 
+.start-here-card {
+  background: #FAF6EC;
+  border: 1px solid #EBE2CE;
+}
+
+.theme-dark .start-here-card {
+  background: #1C2738;
+  border-color: #2D3A45;
+}
+
+.theme-dark .dark-label {
+  color: #C97B4A;
+}
+
+.theme-dark .hero-highlight {
+  color: #7BAE4A;
+}
+
 .message-enter {
   animation: messageEnter 0.3s ease-out;
 }

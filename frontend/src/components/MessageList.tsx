@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { ChatMessage } from '../lib/types'
 import { MessageBubble } from './MessageBubble'
-import { Sparkles } from 'lucide-react'
+import { QuickActions } from './QuickActions'
 
 interface Props {
   messages: ChatMessage[]
@@ -24,44 +24,46 @@ function TypingIndicator() {
 }
 
 function EmptyState({ onPick, disabled }: { onPick: (text: string) => void; disabled: boolean }) {
-  const suggestions = [
-    "What's the PET rate?",
-    'I sold 5kg copper',
-    'Find rates near me',
-    'Log a sale',
-  ]
-
   return (
-    <div className="flex h-full flex-col items-center justify-center px-4 py-8">
-      <div className="w-full max-w-md text-center">
-        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--color-primary)] text-[var(--color-accent)] font-bold text-xl shadow-[var(--shadow-lg)] mb-5">
-          SW
-        </div>
-        <h2 className="text-[26px] font-bold tracking-tight text-[var(--color-text)]">Scrapwisest</h2>
-        <p className="mt-1.5 text-[14px] font-medium text-[var(--color-text-muted)]">Know the rate. Make the deal.</p>
-        <p className="mt-5 text-[15px] leading-relaxed text-[var(--color-text-muted)]">
-          Ask about a scrap price, or tell me what you sold.
-        </p>
-
-        <div className="mt-7">
-          <p className="flex items-center justify-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--color-text-muted)] mb-3">
-            <Sparkles className="h-3.5 w-3.5 text-[var(--color-accent)]" />
-            Try asking
-          </p>
-          <div className="flex flex-col gap-2">
-            {suggestions.map((text) => (
-              <button
-                key={text}
-                type="button"
-                disabled={disabled}
-                onClick={() => onPick(text)}
-                className="group flex items-center justify-between rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 text-left text-[14px] font-medium text-[var(--color-text)] shadow-[var(--shadow-sm)] transition-all hover:-translate-y-0.5 hover:border-[var(--color-accent)] hover:shadow-[var(--shadow-md)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg-chat)] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:translate-y-0"
-              >
-                <span>{text}</span>
-                <span className="text-[var(--color-text-muted)] transition-colors group-hover:text-[var(--color-accent)]">→</span>
-              </button>
-            ))}
+    <div className="flex min-h-full flex-col justify-center px-1 py-8">
+      <div className="w-full">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-start">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#A0522D] dark-label">
+              A better number before the deal
+            </p>
+            <h1 className="mt-3 text-[34px] font-extrabold leading-[1.06] tracking-[-0.03em] sm:text-[44px] lg:text-[52px]">
+              <span className="text-[var(--color-text)]">Know the rate.</span>
+              <br />
+              <span className="hero-highlight text-[#5E8C3A]">Keep your share.</span>
+            </h1>
+            <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-[var(--color-text-muted)]">
+              Check a local scrap price or log what you sold. Speak naturally in English, Urdu,
+              Roman Urdu, Hindi, Hinglish, or Telugu.
+            </p>
           </div>
+
+          <div className="start-here-card rounded-2xl px-5 py-4 shadow-[var(--shadow-sm)] lg:mt-11 lg:w-[220px]">
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#A0522D] dark-label">
+              Start here
+            </p>
+            <p className="mt-1.5 text-[16px] font-bold leading-snug text-[var(--color-text)]">
+              Ask for a rate
+            </p>
+            <p className="text-[13px] text-[var(--color-text-muted)]">before you negotiate</p>
+          </div>
+        </div>
+
+        <div className="mt-9">
+          <div className="mb-3 flex items-baseline justify-between gap-3">
+            <h2 className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#A0522D] dark-label">
+              Quick checks
+            </h2>
+            <span className="text-[12px] text-[var(--color-text-muted)]">
+              Tap one or type your own
+            </span>
+          </div>
+          <QuickActions onPick={onPick} disabled={disabled} />
         </div>
       </div>
     </div>
