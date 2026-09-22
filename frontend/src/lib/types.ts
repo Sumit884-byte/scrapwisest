@@ -47,6 +47,9 @@ export interface PriceData {
   tier_used: string
   local_report_count: number
   city_report_count: number
+  used_external_context?: boolean
+  external_context?: string | null
+  external_sources?: string[]
 }
 
 /** Shape of the backend's `POST /chat` success response. */

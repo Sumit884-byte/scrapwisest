@@ -19,11 +19,118 @@ body {
     'Segoe UI',
     Roboto,
     sans-serif;
-  background-color: #f1f5f9; /* slate-100 */
+  background-color: #f2f1eb;
+  background-image: radial-gradient(#d9d8cd 0.65px, transparent 0.65px);
+  background-size: 18px 18px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
   overscroll-behavior: none;
+}
+
+.brand-mark {
+  display: flex;
+  height: 40px;
+  width: 40px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px 12px 12px 4px;
+  background: #1e2b3b;
+  color: #b9d67b;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  box-shadow: 3px 3px 0 #d5d9c7;
+}
+
+.status-dot {
+  height: 7px;
+  width: 7px;
+  border-radius: 999px;
+  background: #8bae57;
+  box-shadow: 0 0 0 3px #e3ead5;
+}
+
+.eyebrow,
+.section-label {
+  color: #8b6b3e;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+
+.hero-title {
+  color: #172536;
+  font-size: clamp(2.15rem, 6vw, 4.1rem);
+  font-weight: 800;
+  letter-spacing: -.065em;
+  line-height: .98;
+}
+
+.hero-title span {
+  color: #668346;
+}
+
+.quick-category {
+  min-width: 80px;
+  color: #8b6b3e;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .02em;
+  line-height: 1.1;
+}
+
+.quick-icon {
+  display: flex;
+  height: 32px;
+  width: 32px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  background: #e8eadc;
+  color: #637451;
+}
+
+.quick-arrow {
+  color: #a4aa9c;
+  font-size: 18px;
+  transition: transform .2s ease, color .2s ease;
+}
+
+button:hover .quick-arrow {
+  color: #668346;
+  transform: translateX(2px);
+}
+
+.composer-shell {
+  border: 1px solid #c8cbbd;
+  border-radius: 16px;
+  background: #fffefa;
+  box-shadow: 0 2px 0 rgba(39, 51, 39, .04);
+}
+
+.composer-shell:focus-within {
+  border-color: #91a66e;
+  box-shadow: 0 0 0 3px #e0e8d2;
+}
+
+.composer-action:hover {
+  background: #e4e5d9;
+}
+
+.composer-stop {
+  color: #a94e3a;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.send-button {
+  background: #668346;
+}
+
+.send-button:hover {
+  background: #506d35;
 }
 
 button {
