@@ -8,6 +8,7 @@ interface Props {
   isSending: boolean
   onRetry: (message: ChatMessage) => void
   onQuickAction: (text: string) => void
+  onFollowUp: (text: string) => void
 }
 
 function TypingIndicator() {
@@ -22,7 +23,7 @@ function TypingIndicator() {
   )
 }
 
-export function MessageList({ messages, isSending, onRetry, onQuickAction }: Props) {
+export function MessageList({ messages, isSending, onRetry, onQuickAction, onFollowUp }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -36,7 +37,7 @@ export function MessageList({ messages, isSending, onRetry, onQuickAction }: Pro
           <div className="max-w-lg space-y-2 px-2">
             <h2 className="text-lg font-semibold text-slate-800 sm:text-xl">Ask before you sell.</h2>
             <p className="text-sm leading-relaxed text-slate-500">
-              Your scrap-price copilot. Check a rate or log a sale — in English, Hindi, or Hinglish.
+              Your scrap-price copilot. Check a rate or log a sale — in English, Hindi, Hinglish or Telugu.
             </p>
           </div>
           <QuickActions onPick={onQuickAction} disabled={isSending} />
@@ -44,7 +45,7 @@ export function MessageList({ messages, isSending, onRetry, onQuickAction }: Pro
       ) : (
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 lg:max-w-3xl">
           {messages.map((message) => (
-            <MessageBubble key={message.id} message={message} onRetry={onRetry} />
+            <MessageBubble key={message.id} message={message} onRetry={onRetry} onFollowUp={onFollowUp} />
           ))}
           {isSending && <TypingIndicator />}
         </div>

@@ -38,6 +38,8 @@ export default function App() {
             id: uuid(),
             role: 'assistant',
             text: res.reply,
+            priceData: res.price_data ?? undefined,
+            reportData: res.report_data ?? undefined,
             timestamp: Date.now(),
             status: 'sent',
           },
@@ -75,6 +77,8 @@ export default function App() {
             id: uuid(),
             role: 'assistant',
             text: res.reply,
+            priceData: res.price_data ?? undefined,
+            reportData: res.report_data ?? undefined,
             timestamp: Date.now(),
             status: 'sent',
           },
@@ -106,6 +110,7 @@ export default function App() {
         isSending={isSending}
         onRetry={handleRetry}
         onQuickAction={handleQuickAction}
+        onFollowUp={(text) => void handleSend(text, null)}
       />
       <Composer disabled={isSending} onSend={handleSend} />
     </div>

@@ -27,6 +27,7 @@ def _chat_model(*, model: str, base_url: str, temperature: float = 0) -> ChatOpe
         base_url=base_url,
         api_key=_api_key(),
         temperature=temperature,
+        max_retries=5,
     )
 
 

@@ -1,6 +1,7 @@
 langgraph
 langgraph-checkpoint-sqlite
 langchain
+langchain-core
 deepagents
 pydantic
 pydantic[email]

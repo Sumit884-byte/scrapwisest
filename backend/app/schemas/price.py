@@ -13,6 +13,8 @@ class PriceEstimate(BaseModel):
     material_type: MaterialType
     location: str
     estimated_price_per_kg: float
+    min_price_per_kg: Optional[float] = None
+    max_price_per_kg: Optional[float] = None
     confidence: float = Field(ge=0.0, le=1.0)
     tier_used: str  # "local" | "city" | "seed" | "local+city"
     local_report_count: int

@@ -100,10 +100,16 @@ class PriceEstimatorService:
             conf = 0.20
             tier = "seed"
 
+        observed_prices = local_prices or city_prices
+        min_observed = round(min(observed_prices), 2) if observed_prices else round(seed, 2)
+        max_observed = round(max(observed_prices), 2) if observed_prices else round(seed, 2)
+
         res = PriceEstimate(
             material_type=material,
             location=location,
             estimated_price_per_kg=round(price, 2),
+            min_price_per_kg=min_observed,
+            max_price_per_kg=max_observed,
             confidence=round(conf, 3),
             tier_used=tier,
             local_report_count=n_local,
