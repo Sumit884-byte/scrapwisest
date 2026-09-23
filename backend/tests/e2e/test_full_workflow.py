@@ -32,14 +32,18 @@ def test_full_platform_workflow(client: TestClient):
         json={
             "material_type": "plastic_hdpe",
             "quantity_kg": 20.0,
-            "price_paid_pkr": 1700.0,  # 85 PKR / kg
+            "total_price": 1700.0,  # 85 PKR / kg
+            "currency": "PKR",
+            "country": "Pakistan",
+            "city": "Multan",
             "location": "Samejabad",
             "picker_id": "picker-workflow-01",
         },
     )
     assert report_res.status_code == 201
     rep = report_res.json()
-    assert rep["price_paid_pkr_per_kg"] == 85.0
+    assert rep["price_per_kg"] == 85.0
+    assert rep["currency"] == "PKR"
 
     # 5. Query updated reports to confirm data was saved
     query_res = client.get(

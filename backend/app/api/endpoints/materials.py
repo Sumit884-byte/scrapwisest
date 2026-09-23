@@ -37,8 +37,9 @@ async def get_materials():
                 name_en=name_en,
                 name_ur=name_ur,
                 name_te=name_te,
-                seed_price_pkr_per_kg=seed_price,
-                price_band_pkr=price_band,
+                seed_price_per_kg=seed_price,
+                price_band_per_kg=price_band,
+                currency="PKR",
             )
         )
 

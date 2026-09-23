@@ -129,11 +129,21 @@ _REPLY_LANGUAGE_NAMES = {
 }
 
 
-def picker_context_tags(language: str = "", city: str = "", country: str = "") -> str:
+def picker_context_tags(
+    language: str = "",
+    city: str = "",
+    country: str = "",
+    currency: str = "",
+    neighborhood: str = "",
+) -> str:
     bits: list[str] = []
     place = join_place(city, country)
     if place:
         bits.append(f"[picker_place: {place}]")
+    if neighborhood and neighborhood.strip():
+        bits.append(f"[picker_neighborhood: {neighborhood.strip()}]")
+    if currency and currency.strip():
+        bits.append(f"[picker_currency: {currency.strip().upper()}]")
     lang = language.strip().lower()
     if lang and lang != "auto":
         label = _REPLY_LANGUAGE_NAMES.get(lang, language.strip())
@@ -141,8 +151,15 @@ def picker_context_tags(language: str = "", city: str = "", country: str = "") -
     return "\n".join(bits)
 
 
-def with_picker_context(text: str, language: str = "", city: str = "", country: str = "") -> str:
-    tags = picker_context_tags(language, city, country)
+def with_picker_context(
+    text: str,
+    language: str = "",
+    city: str = "",
+    country: str = "",
+    currency: str = "",
+    neighborhood: str = "",
+) -> str:
+    tags = picker_context_tags(language, city, country, currency, neighborhood)
     if not tags:
         return text
     if text.strip():
@@ -278,17 +295,31 @@ def _walk_values(value):
             yield from _walk_values(child)
 
 
+def _report_price_value(raw: dict, *names: str, default=0):
+    """Read a money field under its new or legacy key."""
+    for name in names:
+        if raw.get(name) is not None:
+            return raw[name]
+    return default
+
+
 def _extract_report_data(agent_result: dict) -> Optional[ReportReviewData]:
     """Recover a sale report and anomaly status from the pipeline output."""
     for item in _walk_values(agent_result):
         raw = item.get("price_report") if isinstance(item, dict) else None
-        if raw is None and {"material_type", "quantity_kg", "price_paid_pkr_per_kg"}.issubset(item):
+        if raw is None and (
+            {"material_type", "quantity_kg", "price_per_kg"}.issubset(item)
+            or {"material_type", "quantity_kg", "price_paid_pkr_per_kg"}.issubset(item)
+        ):
             raw = item
         if hasattr(raw, "model_dump"):
             raw = raw.model_dump()
         if not isinstance(raw, dict):
             continue
-        if not {"material_type", "quantity_kg", "price_paid_pkr_per_kg"}.issubset(raw):
+        if not (
+            {"material_type", "quantity_kg", "price_per_kg"}.issubset(raw)
+            or {"material_type", "quantity_kg", "price_paid_pkr_per_kg"}.issubset(raw)
+        ):
             continue
 
         verdict = item.get("verdict")
@@ -300,8 +331,14 @@ def _extract_report_data(agent_result: dict) -> Optional[ReportReviewData]:
             return ReportReviewData(
                 material_type=raw["material_type"],
                 quantity_kg=raw.get("quantity_kg", 0),
-                price_paid_pkr=raw.get("price_paid_pkr", 0),
-                price_paid_pkr_per_kg=raw["price_paid_pkr_per_kg"],
+                total_price=_report_price_value(raw, "total_price", "price_paid_pkr"),
+                price_per_kg=_report_price_value(
+                    raw, "price_per_kg", "price_paid_pkr_per_kg"
+                ),
+                currency=raw.get("currency", "unknown"),
+                country=raw.get("country"),
+                city=raw.get("city"),
+                neighborhood=raw.get("neighborhood"),
                 location=raw.get("location", "unknown"),
                 needs_confirmation=raw.get("needs_confirmation", False),
                 confirmation_reason=raw.get("confirmation_reason"),
@@ -399,8 +436,12 @@ def _pending_review_response(text: str, picker_id: str) -> Optional[ChatResponse
     review_data = ReportReviewData(
         material_type=pending.material_type,
         quantity_kg=pending.quantity_kg,
-        price_paid_pkr=pending.price_paid_pkr,
-        price_paid_pkr_per_kg=pending.price_paid_pkr_per_kg,
+        total_price=pending.total_price,
+        price_per_kg=pending.price_per_kg,
+        currency=pending.currency,
+        country=pending.country,
+        city=pending.city,
+        neighborhood=pending.neighborhood,
         location=pending.location,
     )
 
@@ -435,8 +476,12 @@ def _persist_pending_review(response: ChatResponse, picker_id: str) -> ChatRespo
             PriceReport(
                 material_type=data.material_type,
                 quantity_kg=data.quantity_kg,
-                price_paid_pkr=data.price_paid_pkr,
-                price_paid_pkr_per_kg=data.price_paid_pkr_per_kg,
+                total_price=data.total_price,
+                price_per_kg=data.price_per_kg,
+                currency=data.currency,
+                country=data.country,
+                city=data.city,
+                neighborhood=data.neighborhood,
                 location=data.location,
                 timestamp=datetime.now(timezone.utc),
                 needs_confirmation=True,
@@ -521,6 +566,14 @@ async def chat(
     language: str = Form(""),
     city: str = Form(""),
     country: str = Form(""),
+    currency: str = Form(
+        "",
+        description="Optional ISO 4217 currency code for this picker's market (e.g. PKR, INR, USD).",
+    ),
+    neighborhood: str = Form(
+        "",
+        description="Optional neighborhood/area within the city.",
+    ),
 ):
     text = message.strip()
     tf_region = normalize_region(region)
@@ -554,7 +607,7 @@ async def chat(
             _remember_thread,
             tf_region,
             picker_id,
-            with_picker_context(text, language, city, country),
+            with_picker_context(text, language, city, country, currency, neighborhood),
             response.reply,
         )
         return response
@@ -566,7 +619,7 @@ async def chat(
             agent_result, captured_price, captured_report = await asyncio.to_thread(
                 _invoke_agent,
                 tf_region,
-                with_picker_context(text, language, city, country),
+                with_picker_context(text, language, city, country, currency, neighborhood),
                 agent_config,
                 agent_context,
             )
@@ -620,7 +673,7 @@ async def chat(
             _remember_thread,
             tf_region,
             picker_id,
-            with_picker_context(photo_tag, language, city, country),
+            with_picker_context(photo_tag, language, city, country, currency, neighborhood),
             reply,
         )
         return ChatResponse(reply=reply, region=region_info(tf_region)["id"])
@@ -634,7 +687,9 @@ async def chat(
     else:
         tag = f"[detected_material: {classification['material_type']}, confidence: {classification['confidence']:.2f}]"
 
-    augmented_content = with_picker_context(f"{text}\n\n{tag}", language, city, country)
+    augmented_content = with_picker_context(
+        f"{text}\n\n{tag}", language, city, country, currency, neighborhood
+    )
     logger.info("Invoking deep agent with augmented content: '%s'", augmented_content)
 
     try:

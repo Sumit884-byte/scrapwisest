@@ -1,3 +1,10 @@
+from app.schemas.market import (
+    MAX_PLACE_PART_LEN,
+    UNKNOWN_CURRENCY,
+    is_plausible_currency,
+    normalize_currency,
+    normalize_place_part,
+)
 from app.schemas.report import (
     MaterialType,
     RawExtraction,
@@ -13,6 +20,11 @@ from app.schemas.chat import ChatRequest, ChatResponse
 from app.schemas.health import HealthResponse
 
 __all__ = [
+    "MAX_PLACE_PART_LEN",
+    "UNKNOWN_CURRENCY",
+    "is_plausible_currency",
+    "normalize_currency",
+    "normalize_place_part",
     "MaterialType",
     "RawExtraction",
     "PriceReport",

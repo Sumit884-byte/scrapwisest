@@ -37,10 +37,11 @@ class ReportRepository:
         with self._conn() as con:
             con.execute("INSERT INTO reports VALUES (?)", (report.model_dump_json(),))
         logger.info(
-            "Saved report to store: material=%s quantity=%.2fkg price_per_kg=%.2f location=%s",
+            "Saved report to store: material=%s quantity=%.2fkg price_per_kg=%.2f %s location=%s",
             report.material_type.value if hasattr(report.material_type, "value") else str(report.material_type),
             report.quantity_kg,
-            report.price_paid_pkr_per_kg,
+            report.price_per_kg,
+            report.currency,
             report.location,
         )
 

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 from pydantic import BaseModel, Field
+from app.schemas.market import UNKNOWN_CURRENCY
 from app.schemas.report import MaterialType
 
 
@@ -13,6 +14,9 @@ class PriceEstimate(BaseModel):
     material_type: MaterialType
     location: str
     estimated_price_per_kg: float
+    # Currency the estimate is denominated in. "unknown" for legacy flows
+    # that never named one; market-aware scoping lands in a later step.
+    currency: str = UNKNOWN_CURRENCY
     min_price_per_kg: Optional[float] = None
     max_price_per_kg: Optional[float] = None
     used_external_context: bool = False

@@ -24,9 +24,35 @@ if str(_BACKEND_DIR) not in sys.path:
 
 from app.repositories.report_repository import report_repo
 from app.schemas.report import MaterialType, PriceReport
+from app.services.location_resolver import UNKNOWN_CURRENCY, normalize_place_part
 
 DATA_PATH = _REPO_ROOT / "demo_data" / "reports.json"
 DEMO_PICKER_ID = "demo-seed"
+
+
+def _demo_keys(report: PriceReport) -> tuple[tuple, tuple]:
+    """Full market-aware key plus a legacy key.
+
+    The legacy key (no currency/country/city) keeps the loader idempotent
+    for databases seeded before the global market model existed.
+    """
+    material = (
+        report.material_type.value
+        if hasattr(report.material_type, "value")
+        else str(report.material_type)
+    )
+    legacy = (
+        material,
+        report.quantity_kg,
+        report.price_per_kg,
+        report.location.strip().lower(),
+    )
+    full = legacy + (
+        (report.currency or UNKNOWN_CURRENCY).strip().upper(),
+        (report.country or "").strip().lower(),
+        (report.city or "").strip().lower(),
+    )
+    return full, legacy
 
 
 def load_demo_reports(*, replace: bool = False) -> tuple[int, int]:
@@ -39,41 +65,51 @@ def load_demo_reports(*, replace: bool = False) -> tuple[int, int]:
         # Keep replacement out of the normal loader to avoid accidental data loss.
         raise ValueError("--replace is not supported; use a fresh demo database instead")
 
-    existing_demo = {
-        (
-            report.material_type.value,
-            report.quantity_kg,
-            report.price_paid_pkr_per_kg,
-            report.location.strip().lower(),
-        )
-        for report in existing
-        if report.picker_id == DEMO_PICKER_ID
-    }
+    existing_demo: set[tuple] = set()
+    for report in existing:
+        if report.picker_id != DEMO_PICKER_ID:
+            continue
+        full, legacy = _demo_keys(report)
+        existing_demo.add(full)
+        existing_demo.add(legacy)
 
     inserted = 0
     skipped = 0
     for record in records:
         material = MaterialType(record["material_type"])
         quantity = float(record["quantity_kg"])
-        price_per_kg = float(record["price_paid_pkr_per_kg"])
+        # New files use "price_per_kg"; pre-migration files used the legacy key.
+        if "price_per_kg" in record:
+            price_per_kg = float(record["price_per_kg"])
+        else:
+            price_per_kg = float(record["price_paid_pkr_per_kg"])
         location = str(record["location"]).strip()
-        key = (material.value, quantity, price_per_kg, location.lower())
+        currency = str(record.get("currency", UNKNOWN_CURRENCY)).strip() or UNKNOWN_CURRENCY
+        country = normalize_place_part(record.get("country"))
+        city = normalize_place_part(record.get("city"))
 
-        if key in existing_demo:
+        candidate = PriceReport(
+            material_type=material,
+            quantity_kg=quantity,
+            total_price=round(quantity * price_per_kg, 2),
+            price_per_kg=price_per_kg,
+            currency=currency,
+            country=country,
+            city=city,
+            neighborhood=location,
+            location=location,
+            timestamp=datetime.now(timezone.utc),
+            picker_id=DEMO_PICKER_ID,
+        )
+        full, legacy = _demo_keys(candidate)
+
+        if full in existing_demo or legacy in existing_demo:
             skipped += 1
             continue
 
-        report_repo.add(
-            PriceReport(
-                material_type=material,
-                quantity_kg=quantity,
-                price_paid_pkr=round(quantity * price_per_kg, 2),
-                price_paid_pkr_per_kg=price_per_kg,
-                location=location,
-                timestamp=datetime.now(timezone.utc),
-                picker_id=DEMO_PICKER_ID,
-            )
-        )
+        report_repo.add(candidate)
+        existing_demo.add(full)
+        existing_demo.add(legacy)
         inserted += 1
 
     return inserted, skipped

@@ -31,7 +31,17 @@ from app.schemas.report import (
     RawExtraction,
 )
 from app.services.anomaly_detector import anomaly_detector_service
-from app.services.location_resolver import normalize_location
+from app.services.location_resolver import (
+    UNKNOWN_CURRENCY,
+    is_plausible_currency,
+    normalize_currency,
+    normalize_location,
+    normalize_place_part,
+    picker_currency_from_tags,
+    picker_neighborhood_from_tags,
+    picker_place_from_tags,
+    validate_market_fields,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,8 +62,12 @@ def _capture_report(price_report: PriceReport, verdict: Optional[AnomalyVerdict]
         ReportReviewData(
             material_type=price_report.material_type,
             quantity_kg=price_report.quantity_kg,
-            price_paid_pkr=price_report.price_paid_pkr,
-            price_paid_pkr_per_kg=price_report.price_paid_pkr_per_kg,
+            total_price=price_report.total_price,
+            price_per_kg=price_report.price_per_kg,
+            currency=price_report.currency,
+            country=price_report.country,
+            city=price_report.city,
+            neighborhood=price_report.neighborhood,
             location=price_report.location,
             needs_confirmation=price_report.needs_confirmation,
             confirmation_reason=price_report.confirmation_reason,
@@ -82,16 +96,26 @@ def _judge_model():
 
 
 EXTRACTION_PROMPT = """You are extracting a scrap sale report from a waste \
-picker's message. The message may be in English, Urdu, Roman Urdu, Telugu, or Roman Telugu, and \
-may contain informal phrasing or speech-to-text errors.
+picker's message. The message may be in any language or informal phrasing, \
+and may contain speech-to-text errors. Pickers sell in many countries and \
+currencies -- never assume one.
 
 Extract these fields:
 - material_type: must be exactly one of {material_list}. If genuinely \
 unclear, use "other".
 - quantity_kg: weight sold, in kilograms. Convert if given in another unit.
-- price_paid_pkr: TOTAL price paid in Pakistani Rupees (not per-kg, unless \
+- total_price: TOTAL amount paid (number only, not per-kg, unless \
 that's explicitly how it was stated -- then multiply it out).
-- location_text: neighborhood or area name mentioned, if any.
+- currency: 3-letter currency code ONLY if explicitly stated in the \
+message (e.g. "500 PKR", "INR 700", "20 dollars" implies USD). A bare \
+"Rs"/"rupay" alone is ambiguous across countries -- leave it empty. \
+Never guess.
+- country / city / neighborhood: place parts if the message names them \
+(e.g. "Karol Bagh" is a neighborhood, "Delhi" a city). Leave any missing \
+part empty -- do not guess. Context tags like [picker_place: ...] or \
+[picker_currency: ...] carry the picker's saved settings and may be used \
+for place/currency when the sale itself states nothing different.
+- location_text: raw area phrase as written, if any.
 
 For each field, give a confidence score from 0 to 1. If you are genuinely \
 guessing (an ambiguous number, an unclear material), add that field's name \
@@ -105,7 +129,7 @@ LLM_JUDGE_PROMPT = """A waste picker submitted a scrap sale report that one \
 or more automated checks flagged as unusual. Decide whether it's likely a \
 legitimate outlier or likely a bad/manipulated report.
 
-Report: {material} -- {quantity} kg sold at {price_per_kg} PKR/kg in {location}.
+Report: {material} -- {quantity} kg sold at {price_per_kg} {currency}/kg in {location}.
 Recent price/kg reports for this material in this area: {recent_prices}
 What got flagged and why: {flag_reasons}
 
@@ -118,9 +142,14 @@ reason, or fits a pattern with no real-world explanation.
 
 
 def _recent_prices_for(report: PriceReport) -> List[float]:
-    """Trusted price/kg history for this material in this area."""
+    """Trusted price/kg history for this material in this area.
+
+    NOTE (Step 1): market scoping (same currency/country/city pooling)
+    is deliberately unchanged here -- a later step will stop pooling
+    across incompatible markets. Field names are generic already.
+    """
     return [
-        r.price_paid_pkr_per_kg
+        r.price_per_kg
         for r in report_repo.trusted_reports()
         if r.material_type == report.material_type
         and r.location.strip().lower() == report.location.strip().lower()
@@ -170,10 +199,11 @@ def extract_report(state: PipelineState) -> dict:
         if raw_extraction is None:
             raise ValueError("model returned no structured output (None)")
         logger.info(
-            "Extraction succeeded: material=%s quantity_kg=%s price_paid_pkr=%s",
+            "Extraction succeeded: material=%s quantity_kg=%s total_price=%s currency=%s",
             raw_extraction.material_type,
             raw_extraction.quantity_kg,
-            raw_extraction.price_paid_pkr,
+            raw_extraction.total_price,
+            raw_extraction.currency,
         )
     except Exception:
         logger.exception("Extraction failed, falling back to unclear report")
@@ -192,21 +222,40 @@ def validate_and_build(state: PipelineState) -> dict:
     """Deterministic validation: rules, range checks, confidence thresholds."""
     reasons: list[str] = []
     raw = state["raw_extraction"]
+    message = state["messages"][-1].content if state.get("messages") else ""
 
     if raw.quantity_kg is None:
         reasons.append("missing quantity")
-    if raw.price_paid_pkr is None:
+    if raw.total_price is None:
         reasons.append("missing price")
 
+    # Structured market fields: explicit LLM extraction wins; the picker's
+    # saved settings (context tags) backfill what the message didn't state.
+    # Nothing here is guessed -- genuinely missing stays missing.
+    tag_city, tag_country = picker_place_from_tags(message)
+    tag_currency = picker_currency_from_tags(message)
+    tag_neighborhood = picker_neighborhood_from_tags(message)
+
+    currency = normalize_currency(raw.currency or tag_currency)
+    country = normalize_place_part(raw.country or tag_country)
+    city = normalize_place_part(raw.city or tag_city)
+    neighborhood = normalize_place_part(raw.neighborhood or tag_neighborhood)
+    reasons.extend(validate_market_fields(currency, country, city, neighborhood))
+
     price_per_kg = 0.0
-    if raw.quantity_kg and raw.price_paid_pkr:
-        price_per_kg = raw.price_paid_pkr / raw.quantity_kg
-        min_price, max_price = PRICE_PER_KG_BANDS[raw.material_type]
-        if not (min_price <= price_per_kg <= max_price):
-            reasons.append(
-                f"price/kg ({price_per_kg:.0f}) outside expected range "
-                f"for {_material_label(raw.material_type)}"
-            )
+    if raw.quantity_kg and raw.total_price:
+        price_per_kg = raw.total_price / raw.quantity_kg
+        # The sanity bands are denominated in one market's currency. They
+        # only apply to that market (or to legacy reports that never named
+        # a currency); other explicit currencies skip the band check until
+        # per-market bands exist.
+        if currency in ("PKR", UNKNOWN_CURRENCY):
+            min_price, max_price = PRICE_PER_KG_BANDS[raw.material_type]
+            if not (min_price <= price_per_kg <= max_price):
+                reasons.append(
+                    f"price/kg ({price_per_kg:.0f}) outside expected range "
+                    f"for {_material_label(raw.material_type)}"
+                )
 
     if raw.material_type == MaterialType.OTHER:
         reasons.append("material type unclear")
@@ -226,9 +275,13 @@ def validate_and_build(state: PipelineState) -> dict:
     price_report = PriceReport(
         material_type=raw.material_type,
         quantity_kg=raw.quantity_kg or 0.0,
-        price_paid_pkr=raw.price_paid_pkr or 0.0,
-        price_paid_pkr_per_kg=round(price_per_kg, 2),
-        location=normalize_location(raw.location_text),
+        total_price=raw.total_price or 0.0,
+        price_per_kg=round(price_per_kg, 2),
+        currency=currency,
+        country=country,
+        city=city,
+        neighborhood=neighborhood,
+        location=normalize_location(raw.location_text or neighborhood),
         timestamp=datetime.now(timezone.utc),
         needs_confirmation=bool(reasons),
         confirmation_reason="; ".join(reasons) if reasons else None,
@@ -239,10 +292,11 @@ def validate_and_build(state: PipelineState) -> dict:
         _capture_report(price_report)
     else:
         logger.info(
-            "Report validated cleanly: %s %.2fkg @ %.2f/kg",
+            "Report validated cleanly: %s %.2fkg @ %.2f %s/kg",
             _material_label(raw.material_type),
             price_report.quantity_kg,
-            price_report.price_paid_pkr_per_kg,
+            price_report.price_per_kg,
+            price_report.currency,
         )
 
     return {
@@ -253,7 +307,7 @@ def validate_and_build(state: PipelineState) -> dict:
                 f"Report needs confirmation: {price_report.confirmation_reason}"
                 if price_report.needs_confirmation
                 else f"Report intaken cleanly: {_material_label(raw.material_type)} "
-                     f"{price_report.quantity_kg}kg @ {price_report.price_paid_pkr_per_kg}/kg"
+                      f"{price_report.quantity_kg}kg @ {price_report.price_per_kg}/kg"
             ),
         }],
     }
@@ -292,7 +346,8 @@ def llm_check_node(state: PipelineState) -> dict:
     prompt = LLM_JUDGE_PROMPT.format(
         material=_material_label(price_report.material_type),
         quantity=price_report.quantity_kg,
-        price_per_kg=price_report.price_paid_pkr_per_kg,
+        price_per_kg=price_report.price_per_kg,
+        currency=price_report.currency,
         location=price_report.location,
         recent_prices=recent,
         flag_reasons=flag_reasons,
@@ -306,7 +361,7 @@ def llm_check_node(state: PipelineState) -> dict:
     )
     message = (
         f"LLM review of {_material_label(price_report.material_type)} "
-        f"{price_report.quantity_kg}kg @ {price_report.price_paid_pkr_per_kg}/kg: "
+        f"{price_report.quantity_kg}kg @ {price_report.price_per_kg}/kg: "
         + (
             f"flagged as anomalous (confidence {verdict.confidence:.2f}) -- {verdict.reason}"
             if verdict.is_anomalous
@@ -322,7 +377,7 @@ def accept_node(state: PipelineState) -> dict:
     verdict = flagged[-1] if flagged else state["deterministic_result"]
     message = (
         f"Accepted {_material_label(price_report.material_type)} "
-        f"{price_report.quantity_kg}kg @ {price_report.price_paid_pkr_per_kg}/kg "
+        f"{price_report.quantity_kg}kg @ {price_report.price_per_kg}/kg "
         f"via {verdict.method} check -- {verdict.reason}"
     )
     return _finalize(price_report, verdict, message)

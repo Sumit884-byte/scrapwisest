@@ -15,4 +15,6 @@ def test_list_materials(client: TestClient):
     assert pet is not None
     assert pet["name_en"] == "PET plastic"
     assert "پلاسٹک" in pet["name_ur"]
-    assert pet["seed_price_pkr_per_kg"] == 140.0
+    assert pet["seed_price_per_kg"] == 140.0
+    assert pet["currency"] == "PKR"
+    assert "price_band_per_kg" in pet

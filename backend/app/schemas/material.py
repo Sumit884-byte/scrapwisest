@@ -14,8 +14,11 @@ class MaterialInfo(BaseModel):
     name_en: str
     name_ur: str
     name_te: str = ""
-    seed_price_pkr_per_kg: float
-    price_band_pkr: Tuple[float, float]
+    seed_price_per_kg: float
+    price_band_per_kg: Tuple[float, float]
+    # Currency the seed price / band are denominated in. The current seeds
+    # were collected in one market (PKR); per-market seeds land later.
+    currency: str = "PKR"
 
 
 class MaterialListResponse(BaseModel):

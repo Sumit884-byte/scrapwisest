@@ -16,11 +16,12 @@ from app.core.config import settings
 from app.repositories.report_repository import ReportRepository, report_repo
 from app.schemas.price import PriceEstimate
 from app.schemas.report import MaterialType, PriceReport
-from app.services.location_resolver import normalize_location
+from app.services.location_resolver import UNKNOWN_CURRENCY, normalize_location
 
 logger = logging.getLogger(__name__)
 
-# Seed prices (PKR/kg) as MaterialType enum mapping
+# Seed prices (currently denominated in one market's currency) as
+# MaterialType enum mapping. Per-market seeds land in a later step.
 SEED_PRICES: dict[MaterialType, float] = {
     MaterialType.PLASTIC_PET: settings.SEED_PRICES["plastic_pet"],
     MaterialType.PLASTIC_HDPE: settings.SEED_PRICES["plastic_hdpe"],
@@ -45,9 +46,15 @@ class PriceEstimatorService:
         material: MaterialType,
         location: str,
         reports: Optional[List[PriceReport]] = None,
+        currency: str = UNKNOWN_CURRENCY,
     ) -> PriceEstimate:
         """
         Calculates scrap price estimate using the 3-tier fallback algorithm.
+
+        NOTE (Step 1): market-aware pooling (same currency/country/city) is
+        deliberately unchanged here -- a later step will stop pooling across
+        incompatible markets. ``currency`` is echoed through so responses
+        already carry the market denomination.
         """
         if reports is None:
             reports = self.repo.trusted_reports()
@@ -65,8 +72,8 @@ class PriceEstimatorService:
         ]
         city_wide = relevant
 
-        local_prices = [r.price_paid_pkr_per_kg for r in local]
-        city_prices = [r.price_paid_pkr_per_kg for r in city_wide]
+        local_prices = [r.price_per_kg for r in local]
+        city_prices = [r.price_per_kg for r in city_wide]
         seed = self.seed_prices.get(material, 50.0)
 
         n_local = len(local_prices)
@@ -140,6 +147,7 @@ class PriceEstimatorService:
             material_type=material,
             location=location,
             estimated_price_per_kg=round(price, 2),
+            currency=currency,
             min_price_per_kg=min_observed,
             max_price_per_kg=max_observed,
             used_external_context=bool(external_context),
@@ -151,10 +159,11 @@ class PriceEstimatorService:
             city_report_count=n_city,
         )
         logger.info(
-            "Price estimate result: material='%s' location='%s' -> price=%.2f PKR/kg, confidence=%.3f, tier='%s' (n_local=%d, n_city=%d)",
+            "Price estimate result: material='%s' location='%s' -> price=%.2f %s/kg, confidence=%.3f, tier='%s' (n_local=%d, n_city=%d)",
             material.value,
             location,
             res.estimated_price_per_kg,
+            currency,
             res.confidence,
             res.tier_used,
             res.local_report_count,
@@ -162,7 +171,12 @@ class PriceEstimatorService:
         )
         return res
 
-    def estimate_price(self, material_str: str, location: str) -> Union[PriceEstimate, dict]:
+    def estimate_price(
+        self,
+        material_str: str,
+        location: str,
+        currency: str = UNKNOWN_CURRENCY,
+    ) -> Union[PriceEstimate, dict]:
         """Estimate scrap price per kg for a material in a location (string-based tool interface)."""
         logger.info("Service 'estimate_price' called: material_str='%s', location='%s'", material_str, location)
         try:
@@ -171,15 +185,24 @@ class PriceEstimatorService:
             logger.warning("Service 'estimate_price' failed: unknown material '%s'", material_str)
             return {"error": f"unknown material '{material_str}'. Known: {[m.value for m in MaterialType]}"}
 
-        return self.estimate(material, location, self.repo.trusted_reports())
+        return self.estimate(material, location, self.repo.trusted_reports(), currency)
 
 
 price_estimator_service = PriceEstimatorService()
 
 # Standalone function exports for full backwards compatibility
-def estimate(material: MaterialType, location: str, reports: list[PriceReport]) -> PriceEstimate:
-    return price_estimator_service.estimate(material, location, reports)
+def estimate(
+    material: MaterialType,
+    location: str,
+    reports: list[PriceReport],
+    currency: str = UNKNOWN_CURRENCY,
+) -> PriceEstimate:
+    return price_estimator_service.estimate(material, location, reports, currency)
 
 
-def estimate_price(material_str: str, location: str) -> Union[PriceEstimate, dict]:
-    return price_estimator_service.estimate_price(material_str, location)
+def estimate_price(
+    material_str: str,
+    location: str,
+    currency: str = UNKNOWN_CURRENCY,
+) -> Union[PriceEstimate, dict]:
+    return price_estimator_service.estimate_price(material_str, location, currency)

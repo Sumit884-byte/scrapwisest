@@ -13,6 +13,7 @@ def test_material_type_enum():
 
 
 def test_price_report_serialization():
+    # Legacy input names still parse (backwards compatibility) ...
     report = PriceReport(
         material_type=MaterialType.PLASTIC_PET,
         quantity_kg=5.0,
@@ -24,9 +25,14 @@ def test_price_report_serialization():
     json_str = report.model_dump_json()
     assert "plastic_pet" in json_str
     assert "Gulgasht" in json_str
+    # ... but everything is stored and emitted under the generic names.
+    assert "total_price" in json_str
+    assert "price_paid_pkr_per_kg" not in json_str
 
     deserialized = PriceReport.model_validate_json(json_str)
-    assert deserialized.price_paid_pkr_per_kg == 140.0
+    assert deserialized.total_price == 700.0
+    assert deserialized.price_per_kg == 140.0
+    assert deserialized.currency == "unknown"
 
 
 def test_raw_extraction_confidence_bounds():

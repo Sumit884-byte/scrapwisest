@@ -48,7 +48,14 @@ def train_ml_model(
     logger.info("Training Isolation Forest on %d reports...", len(reports))
     X = np.array(
         [
-            _features(r["price_paid_pkr_per_kg"], r["quantity_kg"], r["material_median"])
+            # NOTE (Step 1): training-record key renamed to the generic
+            # "price_per_kg". Old "price_paid_pkr_per_kg" keys are still
+            # accepted for backwards compatibility.
+            _features(
+                r.get("price_per_kg", r.get("price_paid_pkr_per_kg")),
+                r["quantity_kg"],
+                r["material_median"],
+            )
             for r in reports
         ]
     )
@@ -115,9 +122,10 @@ class AnomalyDetectorService:
         recent_prices_per_kg: List[float],
     ) -> AnomalyVerdict:
         logger.info(
-            "Deterministic check running for %s @ %.2f PKR/kg (history count=%d)",
+            "Deterministic check running for %s @ %.2f %s/kg (history count=%d)",
             report.material_type.value if hasattr(report.material_type, "value") else str(report.material_type),
-            report.price_paid_pkr_per_kg,
+            report.price_per_kg,
+            report.currency,
             len(recent_prices_per_kg),
         )
         if len(recent_prices_per_kg) < settings.MIN_REPORTS_FOR_BASELINE:
@@ -130,7 +138,7 @@ class AnomalyDetectorService:
             return verdict
 
         median = statistics.median(recent_prices_per_kg)
-        price = report.price_paid_pkr_per_kg
+        price = report.price_per_kg
 
         if price < median * settings.LOW_RATIO:
             verdict = AnomalyVerdict(
@@ -172,7 +180,7 @@ class AnomalyDetectorService:
         mat_name = report.material_type.value if hasattr(report.material_type, "value") else str(report.material_type)
         logger.info("ML check running for %s with median=%.2f", mat_name, material_median)
         is_anom, raw_score = ml_score(
-            self.ml_model, report.price_paid_pkr_per_kg, report.quantity_kg, material_median
+            self.ml_model, report.price_per_kg, report.quantity_kg, material_median
         )
         verdict = AnomalyVerdict(
             is_anomalous=is_anom,
@@ -187,13 +195,13 @@ class AnomalyDetectorService:
         trusted = self.repo.trusted_reports()
         prices_by_material: Dict = defaultdict(list)
         for r in trusted:
-            prices_by_material[r.material_type].append(r.price_paid_pkr_per_kg)
+            prices_by_material[r.material_type].append(r.price_per_kg)
         medians = {m: statistics.median(p) for m, p in prices_by_material.items()}
         records = [
             {
-                "price_paid_pkr_per_kg": r.price_paid_pkr_per_kg,
+                "price_per_kg": r.price_per_kg,
                 "quantity_kg": r.quantity_kg,
-                "material_median": medians.get(r.material_type, r.price_paid_pkr_per_kg),
+                "material_median": medians.get(r.material_type, r.price_per_kg),
             }
             for r in trusted
         ]
