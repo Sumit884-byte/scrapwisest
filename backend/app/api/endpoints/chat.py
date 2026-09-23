@@ -137,9 +137,16 @@ def picker_context_tags(
     neighborhood: str = "",
 ) -> str:
     bits: list[str] = []
-    place = join_place(city, country)
-    if place:
-        bits.append(f"[picker_place: {place}]")
+    city_part = (city or "").strip()
+    country_part = (country or "").strip()
+    if city_part and country_part:
+        bits.append(f"[picker_place: {city_part}, {country_part}]")
+    elif city_part:
+        bits.append(f"[picker_place: {city_part}]")
+    elif country_part:
+        # Leading comma keeps "[picker_place: , Country]" parsing as
+        # (city=None, country=Country) instead of misreading it as a city.
+        bits.append(f"[picker_place: , {country_part}]")
     if neighborhood and neighborhood.strip():
         bits.append(f"[picker_neighborhood: {neighborhood.strip()}]")
     if currency and currency.strip():
@@ -378,8 +385,32 @@ def _remember_thread(tf_region: str | None, picker_id: str, user_text: str, assi
         logger.warning("Could not persist turn to agent thread", exc_info=True)
 
 
-def _invoke_agent(tf_region: str | None, text: str, agent_config: dict, agent_context: AgentContext):
-    begin(agent_context.picker_id)
+def _picker_market(country: str = "", currency: str = "", city: str = "", neighborhood: str = "") -> dict:
+    """Canonical picker defaults for this request (single representation)."""
+    from app.schemas.market import MarketContext
+
+    ctx = MarketContext(
+        country=country or None,
+        currency=currency or None,
+        city=city or None,
+        neighborhood=neighborhood or None,
+    )
+    return {
+        "country": ctx.country,
+        "currency": ctx.currency,
+        "city": ctx.city,
+        "neighborhood": ctx.neighborhood,
+    }
+
+
+def _invoke_agent(
+    tf_region: str | None,
+    text: str,
+    agent_config: dict,
+    agent_context: AgentContext,
+    picker_market: dict | None = None,
+):
+    begin(agent_context.picker_id, picker_market)
     try:
         result = get_agent(tf_region).invoke(
             {"messages": [{"role": "user", "content": text}]},
@@ -414,16 +445,63 @@ def _as_report_data(value) -> Optional[ReportReviewData]:
     return None
 
 
+def _reconcile_estimator_with_report(
+    price: Optional[PriceEstimate],
+    report: Optional[ReportReviewData],
+) -> Optional[PriceEstimate]:
+    """Ensure one location context for the report and the estimator.
+
+    When the same turn produced both a sale report and a price estimate,
+    the estimate must use the report's canonical market (Picker context
+    -> Report -> Estimator). If the captured estimate was computed in a
+    different currency, recompute it deterministically in the report's
+    market instead of returning two diverging contexts.
+    """
+    if price is None or report is None:
+        return price
+    try:
+        from app.schemas.market import UNKNOWN_CURRENCY
+        from app.services.location_resolver import normalize_currency as _norm_cur
+
+        report_cur = _norm_cur(report.currency)
+        price_cur = _norm_cur(price.currency)
+        if report_cur == UNKNOWN_CURRENCY or price_cur == report_cur:
+            return price
+        material = report.material_type
+        location = report.neighborhood or report.location or report.city or "unknown"
+        fixed = price_estimator_service.estimate(
+            material,
+            location,
+            currency=report.currency,
+            country=report.country,
+            city=report.city,
+            neighborhood=report.neighborhood,
+        )
+        logger.info(
+            "Reconciled estimator currency %s -> report currency %s for %s",
+            price_cur,
+            report_cur,
+            material,
+        )
+        return fixed
+    except Exception:
+        logger.warning("Estimator reconciliation failed; keeping captured estimate", exc_info=True)
+        return price
+
+
 def _chat_response(
     agent_result: dict,
     region_id: str | None = None,
     price_data: Optional[PriceEstimate] = None,
     report_data: Optional[ReportReviewData] = None,
 ) -> ChatResponse:
+    price = _as_price_data(price_data)
+    report = _as_report_data(report_data) or _extract_report_data(agent_result)
+    price = _reconcile_estimator_with_report(price, report)
     return ChatResponse(
         reply=_extract_reply(agent_result),
-        price_data=_as_price_data(price_data),
-        report_data=_as_report_data(report_data) or _extract_report_data(agent_result),
+        price_data=price,
+        report_data=report,
         region=region_info(region_id)["id"],
     )
 
@@ -625,6 +703,7 @@ async def chat(
 
     agent_config = {"configurable": {"thread_id": picker_id}}
     agent_context = AgentContext(picker_id=picker_id)
+    picker_market = _picker_market(country, currency, city, neighborhood)
 
     confirmed = parse_material_reply(text) if text and image is None else None
     if confirmed is not None:
@@ -657,6 +736,7 @@ async def chat(
                 with_picker_context(text, language, city, country, currency, neighborhood),
                 agent_config,
                 agent_context,
+                picker_market,
             )
         except Exception as exc:
             logger.exception("Agent invocation failed for text-only path")
@@ -734,6 +814,7 @@ async def chat(
             augmented_content,
             agent_config,
             agent_context,
+            picker_market,
         )
     except Exception:
         logger.exception("Agent invocation failed for photo+text path")

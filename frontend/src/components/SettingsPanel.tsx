@@ -1,4 +1,4 @@
-import { COUNTRIES, LANGUAGES, placeLabel, type PickerSettings } from '../lib/settings'
+import { COUNTRIES, CURRENCIES, LANGUAGES, placeLabel, type PickerSettings } from '../lib/settings'
 import { X, Check } from 'lucide-react'
 
 interface Props {
@@ -32,7 +32,7 @@ export function SettingsPanel({ open, settings, onChange, onClose }: Props) {
               Settings
             </h2>
             <p className="mt-0.5 text-[13px] text-[var(--color-text-muted)]">
-              Language, city, and country for rates and voice.
+              Language, market, and area for rates and voice.
             </p>
           </div>
           <button
@@ -112,6 +112,45 @@ export function SettingsPanel({ open, settings, onChange, onClose }: Props) {
           value={settings.city}
           onChange={(event) => onChange({ city: event.target.value })}
           placeholder="Karachi, Lahore, Kolkata…"
+          className="mb-4 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 py-3 text-[15px] text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] transition focus:border-[var(--color-accent)] focus:outline-none focus:ring-4 focus:ring-[var(--color-focus-ring)]"
+        />
+
+        <label className="mb-2.5 block text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--color-text-muted)]">
+          Neighborhood / Area
+        </label>
+        <input
+          value={settings.neighborhood}
+          onChange={(event) => onChange({ neighborhood: event.target.value })}
+          placeholder="Income Colony, Samejabad…"
+          className="mb-4 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 py-3 text-[15px] text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] transition focus:border-[var(--color-accent)] focus:outline-none focus:ring-4 focus:ring-[var(--color-focus-ring)]"
+        />
+
+        <label className="mb-2.5 block text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--color-text-muted)]">
+          Currency
+        </label>
+        <div className="mb-2.5 flex flex-wrap gap-2">
+          {CURRENCIES.map((currency) => {
+            const selected = settings.currency.toUpperCase() === currency
+            return (
+              <button
+                key={currency}
+                type="button"
+                onClick={() => onChange({ currency })}
+                className={`rounded-full border px-3.5 py-1.5 text-[13px] font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 ${
+                  selected
+                    ? 'border-[var(--color-accent)] bg-[var(--color-accent-soft)] text-[var(--color-accent-dark)]'
+                    : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text)]'
+                }`}
+              >
+                {currency}
+              </button>
+            )
+          })}
+        </div>
+        <input
+          value={settings.currency}
+          onChange={(event) => onChange({ currency: event.target.value.toUpperCase() })}
+          placeholder="Or type a 3-letter code (PKR, INR, USD…)"
           className="mb-4 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 py-3 text-[15px] text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] transition focus:border-[var(--color-accent)] focus:outline-none focus:ring-4 focus:ring-[var(--color-focus-ring)]"
         />
 

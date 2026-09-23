@@ -14,6 +14,8 @@ export interface PickerSettings {
   language: AppLanguage
   city: string
   country: string
+  currency: string
+  neighborhood: string
 }
 
 export const LANGUAGES: { id: AppLanguage; label: string; hint: string }[] = [
@@ -29,10 +31,14 @@ export const LANGUAGES: { id: AppLanguage; label: string; hint: string }[] = [
 
 export const COUNTRIES = ['Pakistan', 'India', 'Bangladesh', 'Nepal', 'Other'] as const
 
+export const CURRENCIES = ['PKR', 'INR', 'BDT', 'NPR', 'USD'] as const
+
 export const DEFAULT_SETTINGS: PickerSettings = {
   language: 'auto',
   city: '',
   country: '',
+  currency: '',
+  neighborhood: '',
 }
 
 function speechCode(language: AppLanguage): string | undefined {
@@ -64,6 +70,8 @@ export function readSettings(): PickerSettings {
         : 'auto',
       city: typeof parsed.city === 'string' ? parsed.city : '',
       country: typeof parsed.country === 'string' ? parsed.country : '',
+      currency: typeof parsed.currency === 'string' ? parsed.currency : '',
+      neighborhood: typeof parsed.neighborhood === 'string' ? parsed.neighborhood : '',
     }
   } catch {
     return { ...DEFAULT_SETTINGS }
@@ -84,4 +92,10 @@ export function preferredSpeechCode(settings: PickerSettings): string | undefine
 
 export function placeLabel(settings: PickerSettings): string {
   return [settings.city.trim(), settings.country.trim()].filter(Boolean).join(', ')
+}
+
+export function marketLabel(settings: PickerSettings): string | null {
+  const place = placeLabel(settings)
+  const bits = [place, settings.currency.trim().toUpperCase()].filter(Boolean)
+  return bits.length ? bits.join(' · ') : null
 }

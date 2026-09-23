@@ -40,6 +40,7 @@ from app.services.location_resolver import (
     picker_currency_from_tags,
     picker_neighborhood_from_tags,
     picker_place_from_tags,
+    resolve_market_context,
     validate_market_fields,
 )
 
@@ -229,17 +230,35 @@ def validate_and_build(state: PipelineState) -> dict:
     if raw.total_price is None:
         reasons.append("missing price")
 
-    # Structured market fields: explicit LLM extraction wins; the picker's
-    # saved settings (context tags) backfill what the message didn't state.
+    # Structured market fields via the single canonical resolver:
+    # explicit LLM extraction wins; picker settings (message tags, plus the
+    # per-request slot fallback for when the LLM's rewritten subagent
+    # sentence drops the tags) backfill what the message didn't state.
     # Nothing here is guessed -- genuinely missing stays missing.
     tag_city, tag_country = picker_place_from_tags(message)
     tag_currency = picker_currency_from_tags(message)
     tag_neighborhood = picker_neighborhood_from_tags(message)
+    try:
+        from app.agent.tool_outputs import get_market_context
 
-    currency = normalize_currency(raw.currency or tag_currency)
-    country = normalize_place_part(raw.country or tag_country)
-    city = normalize_place_part(raw.city or tag_city)
-    neighborhood = normalize_place_part(raw.neighborhood or tag_neighborhood)
+        slot_market = get_market_context() or {}
+    except Exception:
+        slot_market = {}
+
+    resolved = resolve_market_context(
+        explicit_country=getattr(raw, "country", None),
+        explicit_currency=getattr(raw, "currency", None),
+        explicit_city=getattr(raw, "city", None),
+        explicit_neighborhood=getattr(raw, "neighborhood", None),
+        picker_country=tag_country or slot_market.get("country"),
+        picker_currency=tag_currency or slot_market.get("currency"),
+        picker_city=tag_city or slot_market.get("city"),
+        picker_neighborhood=tag_neighborhood or slot_market.get("neighborhood"),
+    )
+    currency = resolved.currency
+    country = resolved.country
+    city = resolved.city
+    neighborhood = resolved.neighborhood
     reasons.extend(validate_market_fields(currency, country, city, neighborhood))
 
     price_per_kg = 0.0
@@ -272,6 +291,9 @@ def validate_and_build(state: PipelineState) -> dict:
     )
     reasons.extend(raw.unclear_fields)
 
+    raw_location = getattr(raw, "location_text", None)
+    if raw_location and raw_location.strip().lower() == "unknown":
+        raw_location = None
     price_report = PriceReport(
         material_type=raw.material_type,
         quantity_kg=raw.quantity_kg or 0.0,
@@ -281,7 +303,7 @@ def validate_and_build(state: PipelineState) -> dict:
         country=country,
         city=city,
         neighborhood=neighborhood,
-        location=normalize_location(raw.location_text or neighborhood),
+        location=normalize_location(raw_location or neighborhood),
         timestamp=datetime.now(timezone.utc),
         needs_confirmation=bool(reasons),
         confirmation_reason="; ".join(reasons) if reasons else None,

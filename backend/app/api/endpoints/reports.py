@@ -79,6 +79,12 @@ async def create_report(payload: ReportCreate):
                 f"[{min_band}, {max_band}]"
             )
 
+    # Explicit API values take precedence over any defaults -- never
+    # overwrite them. The legacy `location` stays as the raw compatible
+    # label; structured fields remain authoritative for the estimator.
+    raw_location = (payload.location or "").strip()
+    if not raw_location or raw_location.lower() == "unknown":
+        raw_location = neighborhood or "unknown"
     report = PriceReport(
         material_type=payload.material_type,
         quantity_kg=payload.quantity_kg,
@@ -88,7 +94,7 @@ async def create_report(payload: ReportCreate):
         country=country,
         city=city,
         neighborhood=neighborhood,
-        location=normalize_location(payload.location or neighborhood),
+        location=normalize_location(raw_location),
         timestamp=datetime.now(timezone.utc),
         needs_confirmation=bool(reasons),
         confirmation_reason="; ".join(reasons) if reasons else None,

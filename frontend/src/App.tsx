@@ -70,6 +70,8 @@ export default function App() {
           language: settings.language,
           city: settings.city,
           country: settings.country,
+          currency: settings.currency,
+          neighborhood: settings.neighborhood,
         })
         setMessages((prev) => [
           ...prev.map((m) => (m.id === id ? { ...m, status: 'sent' as const } : m)),
@@ -112,6 +114,8 @@ export default function App() {
           language: settings.language,
           city: settings.city,
           country: settings.country,
+          currency: settings.currency,
+          neighborhood: settings.neighborhood,
         })
         setMessages((prev) => [
           ...prev.map((m) => (m.id === message.id ? { ...m, status: 'sent' as const } : m)),
