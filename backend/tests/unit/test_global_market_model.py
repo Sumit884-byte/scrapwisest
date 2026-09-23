@@ -176,6 +176,7 @@ def test_currency_and_place_normalization():
     assert is_plausible_currency("USD")
     assert is_plausible_currency(UNKNOWN_CURRENCY)
     assert not is_plausible_currency("XYZ123")
+    assert not is_plausible_currency("FOO")
     assert normalize_place_part("  Delhi  ") == "Delhi"
     assert normalize_place_part("   ") is None
     assert normalize_place_part(None) is None
@@ -193,6 +194,14 @@ def test_picker_context_tags_parse_deterministically():
     assert picker_currency_from_tags(message) == "PKR"
     assert picker_place_from_tags("no tags here") == (None, None)
     assert picker_currency_from_tags("no tags here") is None
+    assert picker_place_from_tags("[picker_place: Washington, D.C., United States]") == (
+        "Washington, D.C.",
+        "United States",
+    )
+    assert picker_place_from_tags("[picker_place: Karachi, Sindh, Pakistan]") == (
+        "Karachi, Sindh",
+        "Pakistan",
+    )
 
 
 def test_validate_build_backfills_from_picker_tags():
@@ -218,8 +227,41 @@ def test_validate_build_backfills_from_picker_tags():
     assert report.needs_confirmation is False
     assert report.city == "Multan"
     assert report.country == "Pakistan"
+    assert report.currency == "PKR"
     assert report.total_price == 5250.0
     assert report.price_per_kg == 1050.0
+
+
+def test_unknown_extracted_currency_uses_picker_tag():
+    raw = RawExtraction(
+        material_type=MaterialType.METAL_ALUMINUM,
+        material_confidence=0.95,
+        quantity_kg=20.0,
+        quantity_confidence=0.95,
+        total_price=3200.0,
+        price_confidence=0.95,
+        currency="unknown",
+        location_text=None,
+    )
+    result = validate_and_build(
+        {
+            "raw_extraction": raw,
+            "messages": [
+                HumanMessage(
+                    content=(
+                        "becha 20 kilo 3200 mein\n\n"
+                        "[picker_place: Delhi, India]\n"
+                        "[picker_currency: INR]"
+                    )
+                )
+            ],
+        }
+    )
+    report = result["price_report"]
+    assert report.currency == "INR"
+    assert report.city == "Delhi"
+    assert report.country == "India"
+    assert report.needs_confirmation is False
 
 
 def test_validate_build_flags_bad_currency_without_guessing():
@@ -247,10 +289,10 @@ def test_validate_build_skips_legacy_band_for_other_currencies():
         material_confidence=0.95,
         quantity_kg=5.0,
         quantity_confidence=0.95,
-        total_price=5250.0,
+        total_price=5.5,
         price_confidence=0.95,
         currency="USD",
-        country="United States",
+        country="USA",
         city="Chicago",
         location_text="Pilsen",
     )
@@ -260,6 +302,7 @@ def test_validate_build_skips_legacy_band_for_other_currencies():
     assert report.currency == "USD"
     assert report.country == "United States"
     assert report.city == "Chicago"
+    assert report.price_per_kg == 1.1
 
 
 def test_validate_market_fields_catches_long_place_names():
@@ -270,9 +313,29 @@ def test_validate_market_fields_catches_long_place_names():
 
 def test_estimator_carries_currency_through():
     inr = _report("India", "INR", "Delhi", "Karol Bagh", 700.0, 20.0)
-    result = estimate(MaterialType.METAL_ALUMINUM, "Karol Bagh", [inr], currency="INR")
+    result = estimate(
+        MaterialType.METAL_ALUMINUM,
+        "Karol Bagh",
+        [inr],
+        currency="INR",
+        country="India",
+        city="Delhi",
+    )
     assert result.currency == "INR"
     assert result.estimated_price_per_kg > 0
+    assert result.min_price_per_kg == 35.0
+
+    pkr = _report("Pakistan", "PKR", "Multan", "Income Colony", 21000.0, 20.0)
+    mixed = estimate(
+        MaterialType.METAL_ALUMINUM,
+        "Karol Bagh",
+        [inr, pkr],
+        currency="INR",
+        country="India",
+        city="Delhi",
+    )
+    assert mixed.city_report_count == 1
+    assert mixed.max_price_per_kg == 35.0
 
     legacy = estimate(MaterialType.METAL_ALUMINUM, "Karol Bagh", [inr])
     assert legacy.currency == UNKNOWN_CURRENCY

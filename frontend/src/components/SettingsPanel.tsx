@@ -1,4 +1,16 @@
-import { COUNTRIES, LANGUAGES, placeLabel, type PickerSettings } from '../lib/settings'
+import { useEffect, useState } from 'react'
+import {
+  COUNTRY_SUGGESTIONS,
+  CURRENCIES,
+  LANGUAGES,
+  citySuggestionOptions,
+  currencyForCountry,
+  filterSuggestions,
+  placeLabel,
+  type AppLanguage,
+  type PickerSettings,
+} from '../lib/settings'
+import { SuggestField } from './SuggestField'
 import { X, Check } from 'lucide-react'
 
 interface Props {
@@ -8,10 +20,50 @@ interface Props {
   onClose: () => void
 }
 
+function languageLabel(id: AppLanguage): string {
+  return LANGUAGES.find((item) => item.id === id)?.label ?? ''
+}
+
+function languageOptions(query: string) {
+  const needle = query.trim().toLowerCase()
+  const ranked = LANGUAGES.filter((item) => {
+    if (!needle) return true
+    return (
+      item.label.toLowerCase().includes(needle) ||
+      item.hint.toLowerCase().includes(needle) ||
+      item.id.toLowerCase().includes(needle)
+    )
+  })
+  return ranked.map((item) => ({
+    value: item.id,
+    label: item.label,
+    hint: item.hint,
+  }))
+}
+
 export function SettingsPanel({ open, settings, onChange, onClose }: Props) {
+  const [languageDraft, setLanguageDraft] = useState(() => languageLabel(settings.language))
+
+  useEffect(() => {
+    if (open) setLanguageDraft(languageLabel(settings.language))
+  }, [open, settings.language])
+
   if (!open) return null
 
   const place = placeLabel(settings)
+  const countryMatches = filterSuggestions(settings.country, [...COUNTRY_SUGGESTIONS]).map((name) => ({
+    value: name,
+    label: name,
+  }))
+  const cityMatches = citySuggestionOptions(settings.city, settings.country).map((item) => ({
+    value: item.city,
+    label: item.city,
+    hint: item.country,
+  }))
+  const currencyMatches = filterSuggestions(settings.currency, [...CURRENCIES]).map((code) => ({
+    value: code,
+    label: code,
+  }))
 
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center sm:items-center">
@@ -32,7 +84,7 @@ export function SettingsPanel({ open, settings, onChange, onClose }: Props) {
               Settings
             </h2>
             <p className="mt-0.5 text-[13px] text-[var(--color-text-muted)]">
-              Language, city, and country for rates and voice.
+              Language, place, and currency for rates and voice.
             </p>
           </div>
           <button
@@ -45,80 +97,86 @@ export function SettingsPanel({ open, settings, onChange, onClose }: Props) {
           </button>
         </div>
 
-        <p className="mb-2.5 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--color-text-muted)]">
+        <label id="language-label" className="mb-2.5 block text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--color-text-muted)]">
           Language
-        </p>
-        <div className="mb-5 grid grid-cols-2 gap-2">
-          {LANGUAGES.map((item) => {
-            const selected = settings.language === item.id
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => onChange({ language: item.id })}
-                className={`relative rounded-xl border px-3.5 py-3 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 ${
-                  selected
-                    ? 'border-[var(--color-accent)] bg-[var(--color-accent-soft)] shadow-[var(--shadow-sm)]'
-                    : 'border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
-                }`}
-              >
-                {selected && (
-                  <span className="absolute top-2 right-2 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--color-accent)] text-white">
-                    <Check className="h-3 w-3" strokeWidth={3} />
-                  </span>
-                )}
-                <span className={`block text-[14px] font-semibold ${selected ? 'text-[var(--color-accent-dark)]' : 'text-[var(--color-text)]'}`}>
-                  {item.label}
-                </span>
-                <span className="block text-[11px] text-[var(--color-text-muted)]">{item.hint}</span>
-              </button>
-            )
-          })}
-        </div>
+        </label>
+        <SuggestField
+          value={languageDraft}
+          onChange={setLanguageDraft}
+          placeholder="Type Hindi, Urdu, Hinglish…"
+          labelId="language-label"
+          options={languageOptions(languageDraft)}
+          onPick={(option) => {
+            onChange({ language: option.value as AppLanguage })
+            setLanguageDraft(option.label)
+          }}
+        />
 
-        <label className="mb-2.5 block text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--color-text-muted)]">
+        <label id="country-label" className="mb-2.5 block text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--color-text-muted)]">
           Country
         </label>
-        <div className="mb-2.5 flex flex-wrap gap-2">
-          {COUNTRIES.filter((item) => item !== 'Other').map((country) => {
-            const selected = settings.country === country
-            return (
-              <button
-                key={country}
-                type="button"
-                onClick={() => onChange({ country })}
-                className={`rounded-full border px-3.5 py-1.5 text-[13px] font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 ${
-                  selected
-                    ? 'border-[var(--color-accent)] bg-[var(--color-accent-soft)] text-[var(--color-accent-dark)]'
-                    : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text)]'
-                }`}
-              >
-                {country}
-              </button>
-            )
-          })}
-        </div>
-        <input
+        <SuggestField
           value={settings.country}
-          onChange={(event) => onChange({ country: event.target.value })}
-          placeholder="Or type another country"
-          className="mb-4 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 py-3 text-[15px] text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] transition focus:border-[var(--color-accent)] focus:outline-none focus:ring-4 focus:ring-[var(--color-focus-ring)]"
+          placeholder="Type India, Pakistan…"
+          labelId="country-label"
+          options={countryMatches}
+          onChange={(country) =>
+            onChange({ country, currency: currencyForCountry(country) || settings.currency })
+          }
+          onPick={(option) =>
+            onChange({
+              country: option.value,
+              currency: currencyForCountry(option.value) || settings.currency,
+            })
+          }
+        />
+
+        <label id="city-label" className="mb-2.5 block text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--color-text-muted)]">
+          City
+        </label>
+        <SuggestField
+          value={settings.city}
+          placeholder="Type Delhi, Karachi, Kolkata…"
+          labelId="city-label"
+          options={cityMatches}
+          onChange={(city) => onChange({ city })}
+          onPick={(option) =>
+            onChange({
+              city: option.value,
+              country: settings.country || option.hint || '',
+              currency:
+                settings.currency || currencyForCountry(settings.country || option.hint || ''),
+            })
+          }
         />
 
         <label className="mb-2.5 block text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--color-text-muted)]">
-          City
+          Area
         </label>
         <input
-          value={settings.city}
-          onChange={(event) => onChange({ city: event.target.value })}
-          placeholder="Karachi, Lahore, Kolkata…"
+          value={settings.neighborhood}
+          onChange={(event) => onChange({ neighborhood: event.target.value })}
+          placeholder="Optional neighborhood"
           className="mb-4 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 py-3 text-[15px] text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] transition focus:border-[var(--color-accent)] focus:outline-none focus:ring-4 focus:ring-[var(--color-focus-ring)]"
+        />
+
+        <label id="currency-label" className="mb-2.5 block text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--color-text-muted)]">
+          Currency
+        </label>
+        <SuggestField
+          value={settings.currency}
+          placeholder="Type PKR, INR, USD…"
+          labelId="currency-label"
+          options={currencyMatches}
+          onChange={(currency) => onChange({ currency: currency.toUpperCase() })}
+          onPick={(option) => onChange({ currency: option.value })}
         />
 
         {place && (
           <div className="flex items-center gap-1.5 rounded-xl bg-[var(--color-accent-soft)] px-3.5 py-2.5 text-[13px] font-medium text-[var(--color-accent-dark)]">
             <Check className="h-4 w-4" />
-            Rates will use {place}.
+            Rates will use {place}
+            {settings.currency ? ` · ${settings.currency}` : ''}.
           </div>
         )}
 

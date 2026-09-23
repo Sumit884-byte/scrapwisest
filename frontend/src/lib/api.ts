@@ -24,6 +24,8 @@ export interface PostChatArgs {
   language?: string | null
   city?: string | null
   country?: string | null
+  currency?: string | null
+  neighborhood?: string | null
 }
 
 /**
@@ -58,15 +60,21 @@ export async function postChat({
   language,
   city,
   country,
+  currency,
+  neighborhood,
 }: PostChatArgs): Promise<ChatResponse> {
   const form = new FormData()
   if (text.trim()) form.append('message', text)
   form.append('picker_id', pickerId)
   if (region) form.append('region', region)
   if (language && language !== 'auto') form.append('language', language)
-  if (city?.trim()) form.append('city', city.trim())
-  if (country?.trim()) form.append('country', country.trim())
-  if (image) form.append('image', image)
+    if (city?.trim()) form.append('city', city.trim())
+    if (country?.trim()) form.append('country', country.trim())
+    if (currency?.trim() && currency.trim().toLowerCase() !== 'unknown') {
+      form.append('currency', currency.trim().toUpperCase())
+    }
+    if (neighborhood?.trim()) form.append('neighborhood', neighborhood.trim())
+    if (image) form.append('image', image)
 
   const res = await fetch(`${BASE}/chat`, { method: 'POST', body: form })
   if (!res.ok) {

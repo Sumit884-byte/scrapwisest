@@ -19,7 +19,7 @@ def _report(material: MaterialType, location: str, price: float) -> PriceReport:
 
 
 def test_seed_fallback_when_no_reports():
-    result = estimate(MaterialType.PLASTIC_PET, "income colony", [])
+    result = estimate(MaterialType.PLASTIC_PET, "income colony", [], currency="PKR")
     assert result.tier_used == "seed"
     assert result.estimated_price_per_kg == SEED_PRICES[MaterialType.PLASTIC_PET]
     assert result.confidence == 0.20

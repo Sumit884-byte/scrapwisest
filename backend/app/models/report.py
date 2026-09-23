@@ -18,8 +18,12 @@ class Report(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     material_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     quantity_kg: Mapped[float] = mapped_column(Float, nullable=False)
-    price_paid_pkr: Mapped[float] = mapped_column(Float, nullable=False)
-    price_paid_pkr_per_kg: Mapped[float] = mapped_column(Float, nullable=False, index=True)
+    total_price: Mapped[float] = mapped_column("price_paid_pkr", Float, nullable=False)
+    price_per_kg: Mapped[float] = mapped_column("price_paid_pkr_per_kg", Float, nullable=False, index=True)
+    currency: Mapped[str] = mapped_column(String(8), default="unknown", nullable=False)
+    country: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    city: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    neighborhood: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     location: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     timestamp: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -34,6 +38,6 @@ class Report(Base, TimestampMixin):
     def __repr__(self) -> str:
         return (
             f"<Report id={self.id} material={self.material_type} "
-            f"qty={self.quantity_kg}kg price/kg={self.price_paid_pkr_per_kg} "
+            f"qty={self.quantity_kg}kg price/kg={self.price_per_kg} {self.currency} "
             f"loc='{self.location}'>"
         )

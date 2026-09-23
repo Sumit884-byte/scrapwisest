@@ -31,10 +31,8 @@ from app.schemas.report import (
     RawExtraction,
 )
 from app.services.anomaly_detector import anomaly_detector_service
+from app.schemas.market import canonicalize_country, is_unknown_currency, resolve_currency
 from app.services.location_resolver import (
-    UNKNOWN_CURRENCY,
-    is_plausible_currency,
-    normalize_currency,
     normalize_location,
     normalize_place_part,
     picker_currency_from_tags,
@@ -42,15 +40,11 @@ from app.services.location_resolver import (
     picker_place_from_tags,
     validate_market_fields,
 )
+from app.services.price_estimator import price_band_for
 
 logger = logging.getLogger(__name__)
 
 KNOWN_MATERIALS = [m.value for m in MaterialType]
-
-PRICE_PER_KG_BANDS = {
-    MaterialType(k): v for k, v in settings.PRICE_PER_KG_BANDS.items()
-}
-
 
 def _material_label(material) -> str:
     return material.value if hasattr(material, "value") else str(material)
@@ -142,16 +136,13 @@ reason, or fits a pattern with no real-world explanation.
 
 
 def _recent_prices_for(report: PriceReport) -> List[float]:
-    """Trusted price/kg history for this material in this area.
-
-    NOTE (Step 1): market scoping (same currency/country/city pooling)
-    is deliberately unchanged here -- a later step will stop pooling
-    across incompatible markets. Field names are generic already.
-    """
+    """Trusted price/kg history for this material in the same market and area."""
+    wanted = report.market_key()
     return [
         r.price_per_kg
         for r in report_repo.trusted_reports()
         if r.material_type == report.material_type
+        and r.market_key() == wanted
         and r.location.strip().lower() == report.location.strip().lower()
     ]
 
@@ -236,21 +227,20 @@ def validate_and_build(state: PipelineState) -> dict:
     tag_currency = picker_currency_from_tags(message)
     tag_neighborhood = picker_neighborhood_from_tags(message)
 
-    currency = normalize_currency(raw.currency or tag_currency)
-    country = normalize_place_part(raw.country or tag_country)
+    country = canonicalize_country(raw.country or tag_country)
     city = normalize_place_part(raw.city or tag_city)
     neighborhood = normalize_place_part(raw.neighborhood or tag_neighborhood)
+    currency = resolve_currency(raw.currency, tag_currency, country)
     reasons.extend(validate_market_fields(currency, country, city, neighborhood))
+    if is_unknown_currency(currency):
+        reasons.append("currency unknown")
 
     price_per_kg = 0.0
     if raw.quantity_kg and raw.total_price:
         price_per_kg = raw.total_price / raw.quantity_kg
-        # The sanity bands are denominated in one market's currency. They
-        # only apply to that market (or to legacy reports that never named
-        # a currency); other explicit currencies skip the band check until
-        # per-market bands exist.
-        if currency in ("PKR", UNKNOWN_CURRENCY):
-            min_price, max_price = PRICE_PER_KG_BANDS[raw.material_type]
+        band = price_band_for(raw.material_type, currency)
+        if band is not None:
+            min_price, max_price = band
             if not (min_price <= price_per_kg <= max_price):
                 reasons.append(
                     f"price/kg ({price_per_kg:.0f}) outside expected range "

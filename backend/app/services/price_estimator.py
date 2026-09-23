@@ -1,9 +1,9 @@
 """
 Price Estimator service for Scrapwisest.
-Implements the 3-tier fallback pricing chain:
+Implements the 3-tier fallback pricing chain, scoped to one market_key:
   Tier 1 (local)     — median of recent reports for this material in this neighborhood
-  Tier 2 (city-wide) — median across all neighborhoods in the city
-  Tier 3 (seed)      — manually collected baseline prices
+  Tier 2 (city-wide) — median across neighborhoods in the same currency/country/city
+  Tier 3 (seed)      — baseline for that currency
 """
 
 from __future__ import annotations
@@ -14,24 +14,34 @@ from typing import List, Optional, Union
 
 from app.core.config import settings
 from app.repositories.report_repository import ReportRepository, report_repo
+from app.schemas.market import (
+    UNKNOWN_CURRENCY,
+    canonicalize_country,
+    market_key,
+    normalize_currency,
+    normalize_place_part,
+)
 from app.schemas.price import PriceEstimate
 from app.schemas.report import MaterialType, PriceReport
-from app.services.location_resolver import UNKNOWN_CURRENCY, normalize_location
+from app.services.location_resolver import normalize_location
 
 logger = logging.getLogger(__name__)
 
-# Seed prices (currently denominated in one market's currency) as
-# MaterialType enum mapping. Per-market seeds land in a later step.
 SEED_PRICES: dict[MaterialType, float] = {
-    MaterialType.PLASTIC_PET: settings.SEED_PRICES["plastic_pet"],
-    MaterialType.PLASTIC_HDPE: settings.SEED_PRICES["plastic_hdpe"],
-    MaterialType.GLASS: settings.SEED_PRICES["glass"],
-    MaterialType.METAL_ALUMINUM: settings.SEED_PRICES["metal_aluminum"],
-    MaterialType.METAL_STEEL: settings.SEED_PRICES["metal_steel"],
-    MaterialType.CARDBOARD: settings.SEED_PRICES["cardboard"],
-    MaterialType.MIXED_PAPER: settings.SEED_PRICES["mixed_paper"],
-    MaterialType.OTHER: settings.SEED_PRICES["other"],
+    MaterialType(key): value for key, value in settings.SEED_PRICES.items()
 }
+
+
+def seed_price_for(material: MaterialType, currency: str) -> Optional[float]:
+    table = settings.SEED_PRICES_BY_CURRENCY.get(normalize_currency(currency), {})
+    key = material.value if hasattr(material, "value") else str(material)
+    return table.get(key)
+
+
+def price_band_for(material: MaterialType | str, currency: str) -> Optional[tuple[float, float]]:
+    table = settings.PRICE_BANDS_BY_CURRENCY.get(normalize_currency(currency), {})
+    key = material.value if hasattr(material, "value") else str(material)
+    return table.get(key)
 
 
 class PriceEstimatorService:
@@ -47,34 +57,49 @@ class PriceEstimatorService:
         location: str,
         reports: Optional[List[PriceReport]] = None,
         currency: str = UNKNOWN_CURRENCY,
+        country: str | None = None,
+        city: str | None = None,
     ) -> PriceEstimate:
-        """
-        Calculates scrap price estimate using the 3-tier fallback algorithm.
-
-        NOTE (Step 1): market-aware pooling (same currency/country/city) is
-        deliberately unchanged here -- a later step will stop pooling across
-        incompatible markets. ``currency`` is echoed through so responses
-        already carry the market denomination.
-        """
+        """Calculate a scrap price using only reports from the same market."""
         if reports is None:
             reports = self.repo.trusted_reports()
 
+        currency = normalize_currency(currency)
+        country = canonicalize_country(country)
+        city = normalize_place_part(city)
         location = normalize_location(location)
-        logger.info("Calculating price estimate for material='%s' location='%s'", material.value, location)
+        wanted = market_key(currency, country, city)
+
+        logger.info(
+            "Calculating price estimate for material='%s' location='%s' market=%s",
+            material.value,
+            location,
+            wanted,
+        )
         relevant = [
-            r for r in reports
-            if r.material_type == material and not r.needs_confirmation
+            report
+            for report in reports
+            if report.material_type == material
+            and not report.needs_confirmation
+            and report.market_key() == wanted
         ]
 
         local = [
-            r for r in relevant
-            if normalize_location(r.location) == location
+            report
+            for report in relevant
+            if normalize_location(report.location) == location
+            or (
+                report.neighborhood
+                and normalize_location(report.neighborhood) == location
+            )
         ]
         city_wide = relevant
 
-        local_prices = [r.price_per_kg for r in local]
-        city_prices = [r.price_per_kg for r in city_wide]
-        seed = self.seed_prices.get(material, 50.0)
+        local_prices = [report.price_per_kg for report in local]
+        city_prices = [report.price_per_kg for report in city_wide]
+        seed = seed_price_for(material, currency)
+        if seed is None:
+            seed = 0.0
 
         n_local = len(local_prices)
         n_city = len(city_prices)
@@ -85,36 +110,33 @@ class PriceEstimatorService:
             price = local_w * statistics.median(local_prices) + city_w * statistics.median(city_prices)
             conf = min(0.95, 0.6 + 0.35 * (n_local / (self.min_local * 2)))
             tier = "local+city"
-
         elif n_local >= self.min_local:
             price = statistics.median(local_prices)
             conf = min(0.90, 0.55 + 0.35 * (n_local / (self.min_local * 3)))
             tier = "local"
-
         elif n_city >= self.min_city:
             city_med = statistics.median(city_prices)
             city_w = min(0.85, n_city / (self.min_city * 2))
-            price = city_w * city_med + (1.0 - city_w) * seed
+            price = city_w * city_med + (1.0 - city_w) * seed if seed else city_med
             conf = min(0.70, 0.35 + 0.35 * (n_city / (self.min_city * 2)))
             tier = "city"
-
         elif n_local > 0 or n_city > 0:
             prices = local_prices or city_prices
             data_med = statistics.median(prices)
             n = len(prices)
             data_w = n / (self.min_local if local_prices else self.min_city)
-            price = data_w * data_med + (1.0 - data_w) * seed
-            conf = 0.20 + 0.15 * data_w
+            price = data_w * data_med + (1.0 - data_w) * seed if seed else data_med
+            conf = 0.20 + 0.15 * min(1.0, data_w)
             tier = "local" if local_prices else "city"
-
         else:
             price = seed
-            conf = 0.20
+            conf = 0.20 if seed else 0.05
             tier = "seed"
 
         observed_prices = local_prices or city_prices
-        min_observed = round(min(observed_prices), 2) if observed_prices else round(seed, 2)
-        max_observed = round(max(observed_prices), 2) if observed_prices else round(seed, 2)
+        fallback = seed if seed else 0.0
+        min_observed = round(min(observed_prices), 2) if observed_prices else round(fallback, 2)
+        max_observed = round(max(observed_prices), 2) if observed_prices else round(fallback, 2)
 
         external_context = None
         external_sources: list[str] = []
@@ -125,11 +147,11 @@ class PriceEstimatorService:
         )
         if use_external:
             try:
-                # Lazy import keeps the deterministic estimator usable in
-                # lightweight scripts without loading the full agent stack.
                 from app.agent.tools.tavily_search import search_scrap_market_news
 
-                market = search_scrap_market_news(f"{material.value} in {location} Pakistan")
+                place = ", ".join(part for part in (city or location, country) if part)
+                query = f"{material.value} scrap price per kg in {place or location} {currency}"
+                market = search_scrap_market_news(query)
                 external_context = market.get("answer") or (
                     market.get("results", [{}])[0].get("content")
                     if market.get("results")
@@ -176,33 +198,55 @@ class PriceEstimatorService:
         material_str: str,
         location: str,
         currency: str = UNKNOWN_CURRENCY,
+        country: str | None = None,
+        city: str | None = None,
     ) -> Union[PriceEstimate, dict]:
         """Estimate scrap price per kg for a material in a location (string-based tool interface)."""
-        logger.info("Service 'estimate_price' called: material_str='%s', location='%s'", material_str, location)
+        logger.info(
+            "Service 'estimate_price' called: material_str='%s', location='%s', currency='%s'",
+            material_str,
+            location,
+            currency,
+        )
         try:
             material = MaterialType(material_str.lower().strip())
         except ValueError:
             logger.warning("Service 'estimate_price' failed: unknown material '%s'", material_str)
             return {"error": f"unknown material '{material_str}'. Known: {[m.value for m in MaterialType]}"}
 
-        return self.estimate(material, location, self.repo.trusted_reports(), currency)
+        return self.estimate(
+            material,
+            location,
+            self.repo.trusted_reports(),
+            currency,
+            country=country,
+            city=city,
+        )
 
 
 price_estimator_service = PriceEstimatorService()
 
-# Standalone function exports for full backwards compatibility
+
 def estimate(
     material: MaterialType,
     location: str,
     reports: list[PriceReport],
     currency: str = UNKNOWN_CURRENCY,
+    country: str | None = None,
+    city: str | None = None,
 ) -> PriceEstimate:
-    return price_estimator_service.estimate(material, location, reports, currency)
+    return price_estimator_service.estimate(
+        material, location, reports, currency, country=country, city=city
+    )
 
 
 def estimate_price(
     material_str: str,
     location: str,
     currency: str = UNKNOWN_CURRENCY,
+    country: str | None = None,
+    city: str | None = None,
 ) -> Union[PriceEstimate, dict]:
-    return price_estimator_service.estimate_price(material_str, location, currency)
+    return price_estimator_service.estimate_price(
+        material_str, location, currency, country=country, city=city
+    )

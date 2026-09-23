@@ -193,15 +193,17 @@ class AnomalyDetectorService:
 
     def retrain(self) -> bool:
         trusted = self.repo.trusted_reports()
-        prices_by_material: Dict = defaultdict(list)
+        prices_by_market: Dict = defaultdict(list)
         for r in trusted:
-            prices_by_material[r.material_type].append(r.price_per_kg)
-        medians = {m: statistics.median(p) for m, p in prices_by_material.items()}
+            prices_by_market[(r.material_type, r.market_key())].append(r.price_per_kg)
+        medians = {key: statistics.median(prices) for key, prices in prices_by_market.items()}
         records = [
             {
                 "price_per_kg": r.price_per_kg,
                 "quantity_kg": r.quantity_kg,
-                "material_median": medians.get(r.material_type, r.price_per_kg),
+                "material_median": medians.get(
+                    (r.material_type, r.market_key()), r.price_per_kg
+                ),
             }
             for r in trusted
         ]

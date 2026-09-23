@@ -27,8 +27,14 @@ export interface ChatMessage {
 export interface ReportData {
   material_type: string
   quantity_kg: number
-  price_paid_pkr: number
-  price_paid_pkr_per_kg: number
+  total_price?: number
+  price_per_kg?: number
+  price_paid_pkr?: number
+  price_paid_pkr_per_kg?: number
+  currency?: string
+  country?: string | null
+  city?: string | null
+  neighborhood?: string | null
   location: string
   needs_confirmation: boolean
   confirmation_reason?: string | null
@@ -41,6 +47,7 @@ export interface PriceData {
   material_type: string
   location: string
   estimated_price_per_kg: number
+  currency?: string
   min_price_per_kg?: number | null
   max_price_per_kg?: number | null
   confidence: number

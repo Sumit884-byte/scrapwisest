@@ -20,6 +20,9 @@ router = APIRouter(prefix="/prices", tags=["prices"])
 async def get_price_estimate(
     material: str = Query(..., description="Scrap material type (e.g. plastic_pet, metal_aluminum)"),
     location: str = Query(..., description="Neighborhood or city area name (e.g. Income Colony)"),
+    currency: str = Query("", description="ISO currency (PKR, INR, USD, …)"),
+    country: str = Query("", description="Country for this market"),
+    city: str = Query("", description="City for this market"),
 ):
     """
     Returns the estimated price per kg for a given scrap material in a specific area.
@@ -35,5 +38,11 @@ async def get_price_estimate(
             detail=f"Unknown material '{material}'. Available materials: {known}",
         )
 
-    estimate = price_estimator_service.estimate(mat_enum, location)
+    estimate = price_estimator_service.estimate(
+        mat_enum,
+        location,
+        currency=currency or "unknown",
+        country=country or None,
+        city=city or None,
+    )
     return estimate

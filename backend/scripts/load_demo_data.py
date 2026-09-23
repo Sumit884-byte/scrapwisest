@@ -24,7 +24,8 @@ if str(_BACKEND_DIR) not in sys.path:
 
 from app.repositories.report_repository import report_repo
 from app.schemas.report import MaterialType, PriceReport
-from app.services.location_resolver import UNKNOWN_CURRENCY, normalize_place_part
+from app.schemas.market import UNKNOWN_CURRENCY, is_unknown_currency
+from app.services.location_resolver import normalize_place_part
 
 DATA_PATH = _REPO_ROOT / "demo_data" / "reports.json"
 DEMO_PICKER_ID = "demo-seed"
@@ -71,7 +72,8 @@ def load_demo_reports(*, replace: bool = False) -> tuple[int, int]:
             continue
         full, legacy = _demo_keys(report)
         existing_demo.add(full)
-        existing_demo.add(legacy)
+        if is_unknown_currency(report.currency):
+            existing_demo.add(legacy)
 
     inserted = 0
     skipped = 0
@@ -103,13 +105,17 @@ def load_demo_reports(*, replace: bool = False) -> tuple[int, int]:
         )
         full, legacy = _demo_keys(candidate)
 
-        if full in existing_demo or legacy in existing_demo:
+        if full in existing_demo:
+            skipped += 1
+            continue
+        if is_unknown_currency(candidate.currency) and legacy in existing_demo:
             skipped += 1
             continue
 
         report_repo.add(candidate)
         existing_demo.add(full)
-        existing_demo.add(legacy)
+        if is_unknown_currency(candidate.currency):
+            existing_demo.add(legacy)
         inserted += 1
 
     return inserted, skipped

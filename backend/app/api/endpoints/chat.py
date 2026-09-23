@@ -23,6 +23,7 @@ from app.repositories.report_repository import report_repo
 from app.schemas.chat import ChatResponse, ReportReviewData
 from app.schemas.price import PriceEstimate
 from app.schemas.report import MaterialType, PriceReport
+from app.schemas.market import canonicalize_country, currency_label, resolve_currency
 from app.services.price_estimator import price_estimator_service
 from app.services.image_service import image_service
 
@@ -182,56 +183,94 @@ def hindi_words(text: str) -> str:
     return re.sub(r"\s+,", ",", "".join(out)).strip(" ,")
 
 
-def _material_rate_reply(label: str, price: str, place: str, language: str) -> str:
+def _money_word(currency: str, language: str) -> str:
+    code = currency_label(currency)
     lang = (language or "").strip().lower()
+    if lang == "hi":
+        if code == "USD":
+            return "डॉलर"
+        if code:
+            return f"{code}"
+        return "रुपए"
+    if lang in {"hi-latn", "ur-latn", "te", "te-latn"}:
+        return code or "rupay"
+    if lang == "ur":
+        return code or "روپے"
+    return code or "rupees"
+
+
+def _material_rate_reply(
+    label: str,
+    price: str,
+    place: str,
+    language: str,
+    currency: str = "",
+) -> str:
+    lang = (language or "").strip().lower()
+    money = _money_word(currency, language)
     if lang in {"hi"}:
         hi_label = hindi_words(label) or label
         hi_place = hindi_words(place)
         return (
-            f"{hi_label} की कीमत {hi_place} में लगभग {price} रुपए किलो है।"
+            f"{hi_label} की कीमत {hi_place} में लगभग {price} {money} किलो है।"
             if hi_place
-            else f"{hi_label} की कीमत लगभग {price} रुपए किलो है।"
+            else f"{hi_label} की कीमत लगभग {price} {money} किलो है।"
         )
     if lang in {"hi-latn"}:
         return (
-            f"{label} ka rate {place} mein lagbhag {price} rupay kilo hai."
+            f"{label} ka rate {place} mein lagbhag {price} {money} kilo hai."
             if place
-            else f"{label} ka rate lagbhag {price} rupay kilo hai."
+            else f"{label} ka rate lagbhag {price} {money} kilo hai."
         )
     if lang in {"ur"}:
         return (
-            f"{label} کا ریٹ {place} میں تقریباً {price} روپے کلو ہے۔"
+            f"{label} کا ریٹ {place} میں تقریباً {price} {money} کلو ہے۔"
             if place
-            else f"{label} کا ریٹ تقریباً {price} روپے کلو ہے۔"
+            else f"{label} کا ریٹ تقریباً {price} {money} کلو ہے۔"
         )
     if lang in {"ur-latn"}:
         return (
-            f"{label} ka rate {place} mein taqreeban {price} rupay kilo hai."
+            f"{label} ka rate {place} mein taqreeban {price} {money} kilo hai."
             if place
-            else f"{label} ka rate taqreeban {price} rupay kilo hai."
+            else f"{label} ka rate taqreeban {price} {money} kilo hai."
         )
     if lang in {"te", "te-latn"}:
         return (
-            f"{place} lo {label} rate sumaru {price} rupayalu kilo."
+            f"{place} lo {label} rate sumaru {price} {money} kilo."
             if place
-            else f"{label} rate sumaru {price} rupayalu kilo."
+            else f"{label} rate sumaru {price} {money} kilo."
         )
-    return f"{label} is {price} rupees per kg in {place}." if place else f"{label} is about {price} rupees per kg."
+    unit = money
+    return (
+        f"{label} is {price} {unit} per kg in {place}."
+        if place
+        else f"{label} is about {price} {unit} per kg."
+    )
 
 
 def _material_rate_response(
     material: MaterialType,
     location: str = "unknown",
     language: str = "",
+    currency: str = "",
+    country: str = "",
+    city: str = "",
 ) -> ChatResponse:
-    estimate = price_estimator_service.estimate(material, location)
+    currency = resolve_currency(currency, None, country)
+    estimate = price_estimator_service.estimate(
+        material,
+        location,
+        currency=currency,
+        country=country or None,
+        city=city or None,
+    )
     label = _MATERIAL_LABEL.get(material, material.value.replace("_", " "))
     price = _format_rate(estimate.estimated_price_per_kg)
     place = (estimate.location or "").strip()
     if place.lower() == "unknown":
         place = ""
     return ChatResponse(
-        reply=_material_rate_reply(label, price, place, language),
+        reply=_material_rate_reply(label, price, place, language, currency),
         price_data=estimate,
     )
 
@@ -509,9 +548,12 @@ def _demo_price_response(text: str) -> ChatResponse:
         MaterialType.PLASTIC_PET,
     )
     location = "Income Colony" if "income colony" in lowered else "Samejabad"
-    estimate = price_estimator_service.estimate(material, location)
+    estimate = price_estimator_service.estimate(
+        material, location, currency="PKR", country="Pakistan", city="Multan"
+    )
+    code = estimate.currency or "PKR"
     reply = (
-        f"Demo estimate: {estimate.estimated_price_per_kg:.0f} PKR per kg for "
+        f"Demo estimate: {estimate.estimated_price_per_kg:.0f} {code} per kg for "
         f"{material.value.replace('_', ' ')} in {location}."
     )
     return ChatResponse(reply=reply, price_data=estimate)
@@ -541,11 +583,14 @@ def _deterministic_price_fallback(text: str) -> Optional[ChatResponse]:
         return None
 
     location = "Income Colony" if "income colony" in lowered else "Samejabad"
-    estimate = price_estimator_service.estimate(material, location)
+    estimate = price_estimator_service.estimate(
+        material, location, currency="PKR", country="Pakistan", city="Multan"
+    )
+    code = estimate.currency or "PKR"
     return ChatResponse(
         reply=(
             f"The current fallback estimate is about "
-            f"{estimate.estimated_price_per_kg:.0f} PKR per kg for {material.value.replace('_', ' ')}."
+            f"{estimate.estimated_price_per_kg:.0f} {code} per kg for {material.value.replace('_', ' ')}."
         ),
         price_data=estimate,
     )
@@ -577,7 +622,11 @@ async def chat(
 ):
     text = message.strip()
     tf_region = normalize_region(region)
-    place = join_place(city, country) or "unknown"
+    country = canonicalize_country(country) or country.strip()
+    city = city.strip()
+    currency = resolve_currency(currency, None, country)
+    neighborhood = neighborhood.strip()
+    place = join_place(city, country) or neighborhood or "unknown"
     logger.info(
         "=== POST /chat received: picker_id='%s' text='%s' image=%s region=%s place='%s' lang='%s'",
         picker_id, text, image.filename if image else None, tf_region, place, language,
@@ -602,7 +651,9 @@ async def chat(
     confirmed = parse_material_reply(text) if text and image is None else None
     if confirmed is not None:
         logger.info("Path A: short material answer '%s' → %s", text, confirmed.value)
-        response = _material_rate_response(confirmed, place, language)
+        response = _material_rate_response(
+            confirmed, place, language, currency, country, city
+        )
         await asyncio.to_thread(
             _remember_thread,
             tf_region,

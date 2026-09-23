@@ -13,13 +13,13 @@ from fastapi import APIRouter, HTTPException, Query
 from app.core.config import settings
 from app.repositories.report_repository import report_repo
 from app.schemas.report import MaterialType, PriceReport, ReportCreate, ReportResponse
+from app.schemas.market import canonicalize_country, is_unknown_currency, resolve_currency
 from app.services.location_resolver import (
-    UNKNOWN_CURRENCY,
-    normalize_currency,
     normalize_location,
     normalize_place_part,
     validate_market_fields,
 )
+from app.services.price_estimator import price_band_for
 from app.services.anomaly_detector import anomaly_detector_service
 
 logger = logging.getLogger(__name__)
@@ -31,6 +31,9 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 async def list_reports(
     material: Optional[str] = Query(None, description="Filter by material type"),
     location: Optional[str] = Query(None, description="Filter by neighborhood/location"),
+    currency: Optional[str] = Query(None, description="Filter by ISO currency"),
+    country: Optional[str] = Query(None, description="Filter by country"),
+    city: Optional[str] = Query(None, description="Filter by city"),
     trusted_only: bool = Query(True, description="Only return reports that passed validation without confirmation"),
 ):
     """
@@ -49,6 +52,16 @@ async def list_reports(
     else:
         reports = report_repo.trusted_reports() if trusted_only else report_repo.all_reports()
 
+    if currency:
+        wanted = resolve_currency(currency, None, country)
+        reports = [r for r in reports if r.currency == wanted]
+    if country:
+        wanted_country = canonicalize_country(country)
+        reports = [r for r in reports if r.country == wanted_country]
+    if city:
+        wanted_city = city.strip().lower()
+        reports = [r for r in reports if (r.city or "").strip().lower() == wanted_city]
+
     return reports
 
 
@@ -58,21 +71,18 @@ async def create_report(payload: ReportCreate):
     Directly log a validated scrap sale report into the system.
     """
     price_per_kg = payload.total_price / payload.quantity_kg
-    currency = normalize_currency(payload.currency)
-    country = normalize_place_part(payload.country)
+    country = canonicalize_country(payload.country)
     city = normalize_place_part(payload.city)
     neighborhood = normalize_place_part(payload.neighborhood)
+    currency = resolve_currency(payload.currency, None, country)
 
     reasons: list[str] = validate_market_fields(currency, country, city, neighborhood)
+    if is_unknown_currency(currency):
+        reasons.append("currency unknown")
 
-    # The sanity bands are denominated in one market's currency. They only
-    # apply to that market (or to legacy reports that never named a
-    # currency); other explicit currencies skip the band check until
-    # per-market bands exist.
-    if currency in ("PKR", UNKNOWN_CURRENCY):
-        min_band, max_band = settings.PRICE_PER_KG_BANDS.get(
-            payload.material_type.value, (5.0, 500.0)
-        )
+    band = price_band_for(payload.material_type, currency)
+    if band is not None:
+        min_band, max_band = band
         if not (min_band <= price_per_kg <= max_band):
             reasons.append(
                 f"Price per kg ({price_per_kg:.1f}) outside sanity range "
@@ -95,11 +105,16 @@ async def create_report(payload: ReportCreate):
         picker_id=payload.picker_id,
     )
 
-    recent = report_repo.find_by_material_and_location(
-        payload.material_type,
-        report.location,
-        trusted_only=True,
-    )
+    wanted = report.market_key()
+    recent = [
+        item
+        for item in report_repo.find_by_material_and_location(
+            payload.material_type,
+            report.location,
+            trusted_only=True,
+        )
+        if item.market_key() == wanted
+    ]
     recent_prices = [item.price_per_kg for item in recent]
     verdict = anomaly_detector_service.deterministic_check(report, recent_prices)
 
@@ -110,6 +125,7 @@ async def create_report(payload: ReportCreate):
                 payload.material_type,
                 trusted_only=True,
             )
+            if item.market_key() == wanted
         ]
         if len(recent_prices) >= settings.MIN_REPORTS_FOR_BASELINE:
             import statistics

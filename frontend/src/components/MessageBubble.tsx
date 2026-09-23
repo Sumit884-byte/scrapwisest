@@ -225,9 +225,9 @@ function PriceCard({ data }: { data: PriceData }) {
           </p>
           <div className="mt-1.5 flex items-baseline gap-2">
             <p className="text-[28px] font-bold leading-none tracking-tight text-[var(--color-accent-dark)]">
-              {hindi
-                ? `${data.estimated_price_per_kg} ₹/kg`
-                : `${data.estimated_price_per_kg} PKR/kg`}
+              {`${data.estimated_price_per_kg} ${
+                data.currency && data.currency !== 'unknown' ? data.currency : hindi ? '₹' : 'PKR'
+              }/kg`}
             </p>
           </div>
           <p className="mt-2 inline-flex items-center gap-1 rounded-full bg-[var(--color-accent-soft)] px-2.5 py-1 text-[12px] font-semibold text-[var(--color-accent-dark)]">
@@ -338,11 +338,17 @@ function ReportReviewCard({
         </div>
         <div className="rounded-lg bg-[var(--color-surface)] p-2.5 border border-[var(--color-card-border)]">
           <p className="text-[10px] font-medium text-[var(--color-text-muted)]">Total paid</p>
-          <p className="mt-0.5 text-[14px] font-semibold text-[var(--color-text)]">{data.price_paid_pkr} PKR</p>
+          <p className="mt-0.5 text-[14px] font-semibold text-[var(--color-text)]">
+            {data.total_price ?? data.price_paid_pkr ?? 0}{' '}
+            {data.currency && data.currency !== 'unknown' ? data.currency : 'PKR'}
+          </p>
         </div>
         <div className="rounded-lg bg-[var(--color-surface)] p-2.5 border border-[var(--color-card-border)]">
           <p className="text-[10px] font-medium text-[var(--color-text-muted)]">Per kg</p>
-          <p className="mt-0.5 text-[14px] font-semibold text-[var(--color-text)]">{data.price_paid_pkr_per_kg} PKR/kg</p>
+          <p className="mt-0.5 text-[14px] font-semibold text-[var(--color-text)]">
+            {data.price_per_kg ?? data.price_paid_pkr_per_kg ?? 0}{' '}
+            {data.currency && data.currency !== 'unknown' ? data.currency : 'PKR'}/kg
+          </p>
         </div>
         <div className="col-span-2 rounded-lg bg-[var(--color-surface)] p-2.5 border border-[var(--color-card-border)]">
           <p className="text-[10px] font-medium text-[var(--color-text-muted)]">Location</p>
