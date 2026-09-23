@@ -89,6 +89,48 @@ def expected_currency_for_country(country: str | None) -> Optional[str]:
     return KNOWN_COUNTRY_CURRENCIES.get(part.lower())
 
 
+def is_unknown_currency(code: str | None) -> bool:
+    return normalize_currency(code) == UNKNOWN_CURRENCY
+
+
+_COUNTRY_CANON = {
+    "pakistan": "Pakistan",
+    "india": "India",
+    "bharat": "India",
+    "hindustan": "India",
+    "bangladesh": "Bangladesh",
+    "nepal": "Nepal",
+    "united states": "United States",
+    "united states of america": "United States",
+    "usa": "United States",
+    "us": "United States",
+    "united kingdom": "United Kingdom",
+    "uk": "United Kingdom",
+}
+
+
+def canonicalize_country(value: str | None) -> Optional[str]:
+    part = normalize_place_part(value)
+    if not part:
+        return None
+    return _COUNTRY_CANON.get(part.lower(), part)
+
+
+def resolve_currency(
+    extracted: str | None = None,
+    tagged: str | None = None,
+    country: str | None = None,
+) -> str:
+    """Explicit extraction, then picker tag, then country default."""
+    for candidate in (extracted, tagged, expected_currency_for_country(country)):
+        if candidate is None:
+            continue
+        normalized = normalize_currency(candidate)
+        if not is_unknown_currency(normalized):
+            return normalized
+    return UNKNOWN_CURRENCY
+
+
 def market_consistency_reason(
     country: str | None, currency: str | None
 ) -> Optional[str]:

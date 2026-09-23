@@ -149,34 +149,33 @@ export default function App() {
   )
 
   return (
-    <div className={`flex h-dvh flex-col ${darkMode ? 'theme-dark' : ''}`}>
-      <div className="flex-1 flex flex-col max-w-[1200px] w-full mx-auto bg-[var(--color-bg-chat)] shadow-[var(--shadow-xl)]">
-        <ChatHeader
-          regionLabel={region?.label ?? null}
-          regionStatus={regionStatus}
-          onRequestRegion={() => {
-            void requestRegion()
-          }}
-          placeLabel={placeLabel(settings) || null}
-          onOpenSettings={() => setSettingsOpen(true)}
-          darkMode={darkMode}
-          onToggleDarkMode={() => setDarkMode((value) => !value)}
-          canClearConversation={messages.length > 0}
-          onClearConversation={handleClearConversation}
-        />
-        <MessageList
-          messages={messages}
-          isSending={isSending}
-          onRetry={handleRetry}
-          onQuickAction={handleQuickAction}
-          onFollowUp={(text) => void handleSend(text, null)}
-        />
-        <Composer
-          disabled={isSending}
-          onSend={handleSend}
-          speechLocale={speechLocale(settings.language)}
-        />
-      </div>
+    <div className={`flex h-dvh flex-col bg-[var(--color-bg)] ${darkMode ? 'theme-dark' : ''}`}>
+      <ChatHeader
+        regionLabel={region?.label ?? null}
+        regionStatus={regionStatus}
+        onRequestRegion={() => {
+          void requestRegion()
+        }}
+        placeLabel={placeLabel(settings) || null}
+        currency={settings.currency || null}
+        onOpenSettings={() => setSettingsOpen(true)}
+        darkMode={darkMode}
+        onToggleDarkMode={() => setDarkMode((value) => !value)}
+        canClearConversation={messages.length > 0}
+        onClearConversation={handleClearConversation}
+      />
+      <MessageList
+        messages={messages}
+        isSending={isSending}
+        onRetry={handleRetry}
+        onQuickAction={handleQuickAction}
+        onFollowUp={(text) => void handleSend(text, null)}
+      />
+      <Composer
+        disabled={isSending}
+        onSend={handleSend}
+        speechLocale={speechLocale(settings.language)}
+      />
       <SettingsPanel
         open={settingsOpen}
         settings={settings}

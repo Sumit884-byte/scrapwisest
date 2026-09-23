@@ -9,7 +9,7 @@
  * does not expose the webkit-prefixed constructors.
  */
 
-import { fetchSpeech } from './api'
+import { fetchSpeech, transcribeAudio } from './api'
 import { getDetectedLang } from './language'
 
 export interface DictationCallbacks {
@@ -76,6 +76,141 @@ export interface ActiveRecording {
   cancel: () => void
 }
 
+export interface LiveCapture {
+  stop: () => Promise<{ text: string; language?: string }>
+}
+
+/**
+ * Record while the user talks and transcribe the growing clip so the
+ * text field updates during speech, not only after Stop.
+ */
+export async function startLiveCapture(
+  onPartial: (text: string) => void,
+  locale = 'en-IN',
+): Promise<LiveCapture> {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+  const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find((type) =>
+    MediaRecorder.isTypeSupported(type),
+  )
+  const chunks: BlobPart[] = []
+  const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined)
+  const mimeType = recorder.mimeType || mime || 'audio/webm'
+  let lastText = ''
+  let lastLanguage: string | undefined
+  let busy = false
+  let queued = false
+  let stopDictation: (() => void) | null = null
+
+  const blobFromChunks = () => new Blob(chunks, { type: mimeType })
+
+  const flush = async () => {
+    if (busy) {
+      queued = true
+      return
+    }
+    const blob = blobFromChunks()
+    if (blob.size < 2500) return
+    busy = true
+    try {
+      const result = await transcribeAudio(blob)
+      if (result.text.trim()) {
+        lastText = result.text.trim()
+        lastLanguage = result.language
+        onPartial(lastText)
+      }
+    } catch {
+      // Keep recording; a later chunk or the final stop can still succeed.
+    } finally {
+      busy = false
+      if (queued) {
+        queued = false
+        void flush()
+      }
+    }
+  }
+
+  recorder.ondataavailable = (event) => {
+    if (event.data.size) chunks.push(event.data)
+    void flush()
+  }
+  recorder.start(900)
+  const tick = window.setInterval(() => {
+    if (recorder.state === 'recording') {
+      try {
+        recorder.requestData()
+      } catch {
+        // Some browsers throw if a slice is already pending.
+      }
+    }
+  }, 900)
+
+  if (isSpeechSupported()) {
+    stopDictation = startDictation(
+      {
+        onResult: (interim, final) => {
+          const spoken = `${final}${interim}`.replace(/\s+/g, ' ').trim()
+          if (spoken) onPartial(spoken)
+        },
+        onEnd: () => {},
+        onError: () => {},
+      },
+      locale,
+    )
+  }
+
+  const stopTracks = () => {
+    stream.getTracks().forEach((track) => track.stop())
+  }
+
+  return {
+    stop: () =>
+      new Promise((resolve, reject) => {
+        stopDictation?.()
+        stopDictation = null
+        window.clearInterval(tick)
+        recorder.onstop = () => {
+          stopTracks()
+          const finish = async () => {
+            while (busy) {
+              await new Promise((wait) => setTimeout(wait, 80))
+            }
+            const blob = blobFromChunks()
+            if (blob.size < 800) {
+              resolve({ text: lastText, language: lastLanguage })
+              return
+            }
+            try {
+              const result = await transcribeAudio(blob)
+              resolve({
+                text: result.text.trim() || lastText,
+                language: result.language || lastLanguage,
+              })
+            } catch (error) {
+              if (lastText) resolve({ text: lastText, language: lastLanguage })
+              else reject(error)
+            }
+          }
+          void finish()
+        }
+        recorder.onerror = () => {
+          stopTracks()
+          if (lastText) resolve({ text: lastText, language: lastLanguage })
+          else reject(new Error('recording-failed'))
+        }
+        try {
+          if (recorder.state === 'recording') recorder.stop()
+          else {
+            stopTracks()
+            resolve({ text: lastText, language: lastLanguage })
+          }
+        } catch {
+          stopTracks()
+          resolve({ text: lastText, language: lastLanguage })
+        }
+      }),
+  }
+}
+
 export async function startRecording(): Promise<ActiveRecording> {
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
   const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find((type) =>
@@ -131,31 +266,41 @@ export function startDictation(callbacks: DictationCallbacks, preferredLang: str
   const recognition = new Ctor()
   recognition.interimResults = true
   recognition.maxAlternatives = 1
-  recognition.continuous = false
+  recognition.continuous = true
   recognition.lang = preferredLang
 
   let finalText = ''
+  let stopped = false
   let fallbackStep = 0
   const fallbackLangs = [preferredLang, 'ur-PK', 'en-US'].filter((v, i, a) => a.indexOf(v) === i)
 
   recognition.onresult = (event) => {
+    let rebuiltFinal = ''
     let interim = ''
-    for (let i = event.resultIndex; i < event.results.length; i++) {
+    for (let i = 0; i < event.results.length; i++) {
       const result = event.results[i]
-      if (result.isFinal) finalText += `${result[0].transcript} `
-      else interim += result[0].transcript
+      const piece = result[0]?.transcript ?? ''
+      if (result.isFinal) rebuiltFinal += `${piece} `
+      else interim += piece
     }
+    finalText = rebuiltFinal
     callbacks.onResult(interim, finalText)
   }
 
   recognition.onend = () => {
-    callbacks.onEnd()
+    if (stopped) {
+      callbacks.onEnd()
+      return
+    }
+    try {
+      recognition.start()
+    } catch {
+      callbacks.onEnd()
+    }
   }
 
   recognition.onerror = (event) => {
-    // We initiated the abort (stop button) — not a failure.
     if (event.error === 'aborted' || event.error === 'no-speech') {
-      callbacks.onEnd()
       return
     }
     // Language transcription unavailable — try next fallback language.
@@ -184,6 +329,7 @@ export function startDictation(callbacks: DictationCallbacks, preferredLang: str
   }
 
   return () => {
+    stopped = true
     try {
       recognition.abort()
     } catch {

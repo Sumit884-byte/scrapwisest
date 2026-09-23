@@ -68,11 +68,13 @@ export async function postChat({
   form.append('picker_id', pickerId)
   if (region) form.append('region', region)
   if (language && language !== 'auto') form.append('language', language)
-  if (city?.trim()) form.append('city', city.trim())
-  if (country?.trim()) form.append('country', country.trim())
-  if (currency?.trim()) form.append('currency', currency.trim().toUpperCase())
-  if (neighborhood?.trim()) form.append('neighborhood', neighborhood.trim())
-  if (image) form.append('image', image)
+    if (city?.trim()) form.append('city', city.trim())
+    if (country?.trim()) form.append('country', country.trim())
+    if (currency?.trim() && currency.trim().toLowerCase() !== 'unknown') {
+      form.append('currency', currency.trim().toUpperCase())
+    }
+    if (neighborhood?.trim()) form.append('neighborhood', neighborhood.trim())
+    if (image) form.append('image', image)
 
   const res = await fetch(`${BASE}/chat`, { method: 'POST', body: form })
   if (!res.ok) {

@@ -20,7 +20,13 @@ def test_full_platform_workflow(client: TestClient):
     # 3. Request scrap price estimate for plastic_hdpe
     est_res = client.get(
         "/api/v1/prices/estimate",
-        params={"material": "plastic_hdpe", "location": "Samejabad"},
+        params={
+            "material": "plastic_hdpe",
+            "location": "Samejabad",
+            "currency": "PKR",
+            "country": "Pakistan",
+            "city": "Multan",
+        },
     )
     assert est_res.status_code == 200
     est = est_res.json()

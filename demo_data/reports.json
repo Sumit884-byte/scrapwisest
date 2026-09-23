@@ -277,5 +277,50 @@
     "country": "Pakistan",
     "city": "Multan",
     "location": "Bosan Road"
+  },
+  {
+    "material_type": "metal_aluminum",
+    "quantity_kg": 20.0,
+    "price_per_kg": 160.0,
+    "currency": "INR",
+    "country": "India",
+    "city": "Delhi",
+    "location": "Karol Bagh"
+  },
+  {
+    "material_type": "metal_aluminum",
+    "quantity_kg": 12.0,
+    "price_per_kg": 165.0,
+    "currency": "INR",
+    "country": "India",
+    "city": "Delhi",
+    "location": "Karol Bagh"
+  },
+  {
+    "material_type": "plastic_pet",
+    "quantity_kg": 10.0,
+    "price_per_kg": 28.0,
+    "currency": "INR",
+    "country": "India",
+    "city": "Delhi",
+    "location": "Karol Bagh"
+  },
+  {
+    "material_type": "metal_aluminum",
+    "quantity_kg": 20.0,
+    "price_per_kg": 1.1,
+    "currency": "USD",
+    "country": "United States",
+    "city": "Chicago",
+    "location": "Pilsen"
+  },
+  {
+    "material_type": "plastic_pet",
+    "quantity_kg": 8.0,
+    "price_per_kg": 0.42,
+    "currency": "USD",
+    "country": "United States",
+    "city": "Chicago",
+    "location": "Pilsen"
   }
 ]
