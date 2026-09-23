@@ -1,9 +1,24 @@
 """
 Price Estimator service for Scrapwisest.
-Implements the 3-tier fallback pricing chain:
-  Tier 1 (local)     — median of recent reports for this material in this neighborhood
-  Tier 2 (city-wide) — median across all neighborhoods in the city
-  Tier 3 (seed)      — manually collected baseline prices
+
+Market- and location-scoped 4-tier fallback pricing chain::
+
+    Tier 1 (neighborhood) -- median of recent reports for this material in
+        the same market (country + currency) AND the same city AND the same
+        neighborhood. Reported as ``tier_used="local"`` for backwards
+        compatibility (local == neighborhood scope).
+    Tier 2 (city)         -- median across neighborhoods in the same city,
+        same country, same currency. Reported as ``tier_used="city"``.
+    Tier 3 (country)      -- median across the same market
+        (same material, country, and currency). Reported as
+        ``tier_used="country"``.
+    Tier 4 (seed)         -- verified per-market baseline price, or a safe
+        no-estimate signal when the market has no verified seed.
+
+A report from Multan, Pakistan (PKR) never contributes to an estimate for
+Delhi, India (INR) or Chicago, USA (USD). There is deliberately NO currency
+conversion here: the estimator quotes the local market price in the
+requested market's currency.
 """
 
 from __future__ import annotations
@@ -14,14 +29,30 @@ from typing import List, Optional, Union
 
 from app.core.config import settings
 from app.repositories.report_repository import ReportRepository, report_repo
+from app.schemas.market import UNKNOWN_CURRENCY, market_key
 from app.schemas.price import PriceEstimate
 from app.schemas.report import MaterialType, PriceReport
-from app.services.location_resolver import UNKNOWN_CURRENCY, normalize_location
+from app.services.location_resolver import (
+    neighborhood_label,
+    normalize_currency,
+    normalize_location,
+    normalize_place_part,
+    same_city,
+)
 
 logger = logging.getLogger(__name__)
 
-# Seed prices (currently denominated in one market's currency) as
-# MaterialType enum mapping. Per-market seeds land in a later step.
+# Verified seed prices, keyed by (material, market) where market is the
+# canonical (currency, country) pair from ``market_key()``. Only the
+# Pakistan/PKR market has verified seeds; every other market maps to no
+# entry, which the estimator treats as "no market seed" instead of reusing
+# or inventing numbers.
+_SEED_BY_MARKET: dict[tuple[str, str, str], float] = {}
+for _mat_value, _seed in settings.SEED_PRICES.items():
+    _SEED_BY_MARKET[(_mat_value, "PKR", "pakistan")] = _seed
+
+# Backwards-compatible material-only view (legacy Pakistan/PKR seeds).
+# New code should use _seed_for() instead.
 SEED_PRICES: dict[MaterialType, float] = {
     MaterialType.PLASTIC_PET: settings.SEED_PRICES["plastic_pet"],
     MaterialType.PLASTIC_HDPE: settings.SEED_PRICES["plastic_hdpe"],
@@ -32,6 +63,60 @@ SEED_PRICES: dict[MaterialType, float] = {
     MaterialType.MIXED_PAPER: settings.SEED_PRICES["mixed_paper"],
     MaterialType.OTHER: settings.SEED_PRICES["other"],
 }
+
+# Legacy unknown market (requests/reports that never named a currency or
+# country) falls back to the verified Pakistan/PKR seeds so pre-global
+# callers keep working. This is a documented compatibility exception, not
+# a guess: historically every legacy row came from that market.
+_LEGACY_SEED_MARKET: tuple[str, str] = ("unknown", "")
+
+
+def _material_value(material: MaterialType | str) -> str:
+    return material.value if hasattr(material, "value") else str(material)
+
+
+def _seed_for(
+    material: MaterialType | str, country: str | None, currency: str | None
+) -> Optional[float]:
+    """Verified seed for ``(material, market)``, or None when unknown.
+
+    Only the Pakistan/PKR market (and the legacy unknown market, for
+    backwards compatibility) has verified seeds. All other markets return
+    None so the estimator never fabricates pricing data and never reuses a
+    PKR seed as an INR/USD seed.
+    """
+    mat = _material_value(material)
+    cur, ctry = market_key(country, currency)
+    if (cur, ctry) == _LEGACY_SEED_MARKET:
+        entry = _SEED_BY_MARKET.get((mat, "PKR", "pakistan"))
+        return entry
+    return _SEED_BY_MARKET.get((mat, cur, ctry))
+
+
+def _report_matches_market(
+    report: PriceReport,
+    material_val: str,
+    request_currency: str,
+    request_country: Optional[str],
+) -> bool:
+    """True when a report belongs to the requested market scope.
+
+    Currency must always match exactly (never mix PKR/INR/USD). Country
+    must match exactly when the request names one; a request that names no
+    country is treated as a legacy wildcard for that dimension only, so old
+    callers that pass just a location string keep working while never
+    mixing currencies.
+    """
+    if _material_value(report.material_type) != material_val:
+        return False
+    if report.needs_confirmation:
+        return False
+    if normalize_currency(report.currency) != request_currency:
+        return False
+    if request_country is None:
+        return True
+    report_country = normalize_place_part(report.country)
+    return (report_country or "").lower() == request_country.lower()
 
 
 class PriceEstimatorService:
@@ -47,37 +132,107 @@ class PriceEstimatorService:
         location: str,
         reports: Optional[List[PriceReport]] = None,
         currency: str = UNKNOWN_CURRENCY,
+        country: Optional[str] = None,
+        city: Optional[str] = None,
+        neighborhood: Optional[str] = None,
     ) -> PriceEstimate:
         """
-        Calculates scrap price estimate using the 3-tier fallback algorithm.
+        Market- and location-scoped scrap price estimate.
 
-        NOTE (Step 1): market-aware pooling (same currency/country/city) is
-        deliberately unchanged here -- a later step will stop pooling across
-        incompatible markets. ``currency`` is echoed through so responses
-        already carry the market denomination.
+        Pools only reports for the same material in the same market (same
+        currency, and same country when the request names one), then falls
+        back neighborhood -> city -> country/market -> market-specific seed.
+        Use the requested market's local currency; never convert currencies.
         """
         if reports is None:
             reports = self.repo.trusted_reports()
 
-        location = normalize_location(location)
-        logger.info("Calculating price estimate for material='%s' location='%s'", material.value, location)
-        relevant = [
-            r for r in reports
-            if r.material_type == material and not r.needs_confirmation
+        material_val = _material_value(material)
+        request_currency = normalize_currency(currency)
+        request_country_part = normalize_place_part(country)
+        request_country = request_country_part.lower() if request_country_part else None
+        request_city_part = normalize_place_part(city)
+        request_city = request_city_part.lower() if request_city_part else None
+
+        raw_place = (
+            (neighborhood or "").strip()
+            or (location or "").strip()
+            or (city or "").strip()
+            or "unknown"
+        )
+        display_location = normalize_location(raw_place)
+
+        # City-only requests (e.g. location == city, no neighborhood) skip
+        # the neighborhood tier and go straight to city scope.
+        city_only = False
+        if not (neighborhood or "").strip() and request_city_part and (location or "").strip():
+            loc_norm = normalize_location(location).lower()
+            if loc_norm == request_city_part.lower() or (
+                location or ""
+            ).strip().lower() == request_city_part.lower():
+                city_only = True
+
+        request_label: Optional[str] = None
+        if not city_only:
+            request_label = neighborhood_label(neighborhood, location)
+
+        logger.info(
+            "Calculating market-scoped price estimate for material='%s' "
+            "market=(currency='%s', country='%s', city='%s', neighborhood='%s')",
+            material_val,
+            request_currency,
+            request_country_part,
+            request_city_part,
+            neighborhood,
+        )
+
+        # Tier 0: market pool -- same material, same currency, same country
+        # (country wildcard only when the request names none, for legacy
+        # callers). Nothing outside this pool may influence the estimate.
+        market_reports = [
+            r
+            for r in reports
+            if _report_matches_market(r, material_val, request_currency, request_country)
         ]
 
-        local = [
-            r for r in relevant
-            if normalize_location(r.location) == location
-        ]
-        city_wide = relevant
+        # Tier 2 pool: same city within the market. A request without a city
+        # keeps the legacy wildcard so old location-only callers still work;
+        # explicit cities must match on both city AND country (never compare
+        # city names alone).
+        if request_city is None:
+            city_reports = list(market_reports)
+        else:
+            city_reports = [
+                r
+                for r in market_reports
+                if same_city(request_city_part, request_country_part, r.city, r.country)
+            ]
 
-        local_prices = [r.price_per_kg for r in local]
-        city_prices = [r.price_per_kg for r in city_wide]
-        seed = self.seed_prices.get(material, 50.0)
+        # Tier 1 pool: same neighborhood within the same city/market, so an
+        # "Income Colony" in one city/country can never match another.
+        if request_label is None:
+            neighborhood_reports: List[PriceReport] = []
+        else:
+            wanted = request_label.lower()
+            neighborhood_reports = [
+                r
+                for r in city_reports
+                if (
+                    neighborhood_label(r.neighborhood, r.location) or ""
+                ).lower()
+                == wanted
+            ]
+
+        country_reports = list(market_reports)
+
+        local_prices = [r.price_per_kg for r in neighborhood_reports]
+        city_prices = [r.price_per_kg for r in city_reports]
+        country_prices = [r.price_per_kg for r in country_reports]
+        seed = _seed_for(material, request_country_part, request_currency)
 
         n_local = len(local_prices)
         n_city = len(city_prices)
+        n_country = len(country_prices)
 
         if n_local >= self.min_local and n_city >= self.min_city:
             local_w = n_local / (n_local + n_city)
@@ -93,28 +248,89 @@ class PriceEstimatorService:
 
         elif n_city >= self.min_city:
             city_med = statistics.median(city_prices)
-            city_w = min(0.85, n_city / (self.min_city * 2))
-            price = city_w * city_med + (1.0 - city_w) * seed
+            if seed is not None:
+                city_w = min(0.85, n_city / (self.min_city * 2))
+                price = city_w * city_med + (1.0 - city_w) * seed
+            else:
+                price = city_med
             conf = min(0.70, 0.35 + 0.35 * (n_city / (self.min_city * 2)))
             tier = "city"
 
-        elif n_local > 0 or n_city > 0:
-            prices = local_prices or city_prices
+        elif n_country >= self.min_city:
+            country_med = statistics.median(country_prices)
+            if seed is not None:
+                country_w = min(0.85, n_country / (self.min_city * 2))
+                price = country_w * country_med + (1.0 - country_w) * seed
+            else:
+                price = country_med
+            conf = min(0.70, 0.35 + 0.35 * (n_country / (self.min_city * 2)))
+            tier = "country"
+
+        elif n_local > 0 or n_city > 0 or n_country > 0:
+            if local_prices:
+                prices = local_prices
+                threshold = self.min_local
+                tier = "local"
+            elif city_prices:
+                prices = city_prices
+                threshold = self.min_city
+                tier = "city"
+            else:
+                prices = country_prices
+                threshold = self.min_city
+                tier = "country"
             data_med = statistics.median(prices)
             n = len(prices)
-            data_w = n / (self.min_local if local_prices else self.min_city)
-            price = data_w * data_med + (1.0 - data_w) * seed
+            data_w = n / threshold
+            if seed is not None:
+                price = data_w * data_med + (1.0 - data_w) * seed
+            else:
+                price = data_med
             conf = 0.20 + 0.15 * data_w
-            tier = "local" if local_prices else "city"
 
         else:
-            price = seed
-            conf = 0.20
-            tier = "seed"
+            if seed is not None:
+                price = seed
+                conf = 0.20
+                tier = "seed"
+            else:
+                # No reports and no verified seed for this market: signal
+                # "no estimate" instead of inventing a number.
+                res = PriceEstimate(
+                    material_type=material,
+                    location=display_location,
+                    estimated_price_per_kg=0.0,
+                    currency=request_currency,
+                    min_price_per_kg=None,
+                    max_price_per_kg=None,
+                    used_external_context=False,
+                    external_context=None,
+                    external_sources=[],
+                    confidence=0.0,
+                    tier_used="unavailable",
+                    local_report_count=0,
+                    city_report_count=0,
+                    country_report_count=0,
+                )
+                logger.info(
+                    "No market data or seed for material='%s' market=(currency='%s', country='%s') "
+                    "-> unavailable (no estimate)",
+                    material_val,
+                    request_currency,
+                    request_country_part,
+                )
+                return res
 
-        observed_prices = local_prices or city_prices
-        min_observed = round(min(observed_prices), 2) if observed_prices else round(seed, 2)
-        max_observed = round(max(observed_prices), 2) if observed_prices else round(seed, 2)
+        observed_prices = local_prices or city_prices or country_prices
+        if observed_prices:
+            min_observed: Optional[float] = round(min(observed_prices), 2)
+            max_observed: Optional[float] = round(max(observed_prices), 2)
+        elif seed is not None:
+            min_observed = round(seed, 2)
+            max_observed = round(seed, 2)
+        else:
+            min_observed = None
+            max_observed = None
 
         external_context = None
         external_sources: list[str] = []
@@ -129,7 +345,13 @@ class PriceEstimatorService:
                 # lightweight scripts without loading the full agent stack.
                 from app.agent.tools.tavily_search import search_scrap_market_news
 
-                market = search_scrap_market_news(f"{material.value} in {location} Pakistan")
+                place_bits = [display_location]
+                if request_city_part and request_city_part.lower() != display_location.lower():
+                    place_bits.append(request_city_part)
+                if request_country_part:
+                    place_bits.append(request_country_part)
+                query = f"{material_val} in {', '.join([b for b in place_bits if b and b.lower() != 'unknown'] or ['unknown market'])}"
+                market = search_scrap_market_news(query)
                 external_context = market.get("answer") or (
                     market.get("results", [{}])[0].get("content")
                     if market.get("results")
@@ -145,9 +367,9 @@ class PriceEstimatorService:
 
         res = PriceEstimate(
             material_type=material,
-            location=location,
+            location=display_location,
             estimated_price_per_kg=round(price, 2),
-            currency=currency,
+            currency=request_currency,
             min_price_per_kg=min_observed,
             max_price_per_kg=max_observed,
             used_external_context=bool(external_context),
@@ -157,17 +379,23 @@ class PriceEstimatorService:
             tier_used=tier,
             local_report_count=n_local,
             city_report_count=n_city,
+            country_report_count=n_country,
         )
         logger.info(
-            "Price estimate result: material='%s' location='%s' -> price=%.2f %s/kg, confidence=%.3f, tier='%s' (n_local=%d, n_city=%d)",
-            material.value,
-            location,
+            "Price estimate result: material='%s' location='%s' market=(currency='%s', country='%s', city='%s') "
+            "-> price=%.2f %s/kg, confidence=%.3f, tier='%s' (n_local=%d, n_city=%d, n_country=%d)",
+            material_val,
+            display_location,
+            request_currency,
+            request_country_part,
+            request_city_part,
             res.estimated_price_per_kg,
-            currency,
+            request_currency,
             res.confidence,
             res.tier_used,
-            res.local_report_count,
-            res.city_report_count,
+            n_local,
+            n_city,
+            n_country,
         )
         return res
 
@@ -176,8 +404,15 @@ class PriceEstimatorService:
         material_str: str,
         location: str,
         currency: str = UNKNOWN_CURRENCY,
+        country: Optional[str] = None,
+        city: Optional[str] = None,
+        neighborhood: Optional[str] = None,
     ) -> Union[PriceEstimate, dict]:
-        """Estimate scrap price per kg for a material in a location (string-based tool interface)."""
+        """Estimate scrap price per kg for a material in the requested market.
+
+        Uses the caller's local market and currency; never assumes one
+        market and never converts currencies.
+        """
         logger.info("Service 'estimate_price' called: material_str='%s', location='%s'", material_str, location)
         try:
             material = MaterialType(material_str.lower().strip())
@@ -185,7 +420,7 @@ class PriceEstimatorService:
             logger.warning("Service 'estimate_price' failed: unknown material '%s'", material_str)
             return {"error": f"unknown material '{material_str}'. Known: {[m.value for m in MaterialType]}"}
 
-        return self.estimate(material, location, self.repo.trusted_reports(), currency)
+        return self.estimate(material, location, self.repo.trusted_reports(), currency, country, city, neighborhood)
 
 
 price_estimator_service = PriceEstimatorService()
@@ -196,13 +431,19 @@ def estimate(
     location: str,
     reports: list[PriceReport],
     currency: str = UNKNOWN_CURRENCY,
+    country: Optional[str] = None,
+    city: Optional[str] = None,
+    neighborhood: Optional[str] = None,
 ) -> PriceEstimate:
-    return price_estimator_service.estimate(material, location, reports, currency)
+    return price_estimator_service.estimate(material, location, reports, currency, country, city, neighborhood)
 
 
 def estimate_price(
     material_str: str,
     location: str,
     currency: str = UNKNOWN_CURRENCY,
+    country: Optional[str] = None,
+    city: Optional[str] = None,
+    neighborhood: Optional[str] = None,
 ) -> Union[PriceEstimate, dict]:
-    return price_estimator_service.estimate_price(material_str, location, currency)
+    return price_estimator_service.estimate_price(material_str, location, currency, country, city, neighborhood)

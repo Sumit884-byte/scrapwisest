@@ -223,8 +223,19 @@ def _material_rate_response(
     material: MaterialType,
     location: str = "unknown",
     language: str = "",
+    currency: str = "",
+    country: str = "",
+    city: str = "",
+    neighborhood: str = "",
 ) -> ChatResponse:
-    estimate = price_estimator_service.estimate(material, location)
+    estimate = price_estimator_service.estimate(
+        material,
+        location,
+        currency=(currency.strip() or "unknown"),
+        country=country.strip() or None,
+        city=city.strip() or None,
+        neighborhood=neighborhood.strip() or None,
+    )
     label = _MATERIAL_LABEL.get(material, material.value.replace("_", " "))
     price = _format_rate(estimate.estimated_price_per_kg)
     place = (estimate.location or "").strip()
@@ -492,7 +503,7 @@ def _persist_pending_review(response: ChatResponse, picker_id: str) -> ChatRespo
     return response
 
 
-def _demo_price_response(text: str) -> ChatResponse:
+def _demo_price_response(text: str, currency: str = "", country: str = "", city: str = "", neighborhood: str = "") -> ChatResponse:
     """Provide a no-API-key response for local UI testing only."""
     lowered = text.lower()
     material_aliases = (
@@ -509,15 +520,23 @@ def _demo_price_response(text: str) -> ChatResponse:
         MaterialType.PLASTIC_PET,
     )
     location = "Income Colony" if "income colony" in lowered else "Samejabad"
-    estimate = price_estimator_service.estimate(material, location)
+    estimate = price_estimator_service.estimate(
+        material,
+        neighborhood.strip() or location,
+        currency=(currency.strip() or "unknown"),
+        country=country.strip() or None,
+        city=city.strip() or None,
+        neighborhood=neighborhood.strip() or None,
+    )
+    unit = estimate.currency if estimate.currency.lower() != "unknown" else "PKR"
     reply = (
-        f"Demo estimate: {estimate.estimated_price_per_kg:.0f} PKR per kg for "
+        f"Demo estimate: {estimate.estimated_price_per_kg:.0f} {unit} per kg for "
         f"{material.value.replace('_', ' ')} in {location}."
     )
     return ChatResponse(reply=reply, price_data=estimate)
 
 
-def _deterministic_price_fallback(text: str) -> Optional[ChatResponse]:
+def _deterministic_price_fallback(text: str, currency: str = "", country: str = "", city: str = "", neighborhood: str = "") -> Optional[ChatResponse]:
     """Answer simple price questions when the LLM service is unavailable."""
     lowered = text.lower()
     price_words = ("rate", "price", "worth", "qeemat", "dhar", "kitna", "kya hai")
@@ -541,11 +560,19 @@ def _deterministic_price_fallback(text: str) -> Optional[ChatResponse]:
         return None
 
     location = "Income Colony" if "income colony" in lowered else "Samejabad"
-    estimate = price_estimator_service.estimate(material, location)
+    estimate = price_estimator_service.estimate(
+        material,
+        neighborhood.strip() or location,
+        currency=(currency.strip() or "unknown"),
+        country=country.strip() or None,
+        city=city.strip() or None,
+        neighborhood=neighborhood.strip() or None,
+    )
+    unit = estimate.currency if estimate.currency.lower() != "unknown" else "PKR"
     return ChatResponse(
         reply=(
             f"The current fallback estimate is about "
-            f"{estimate.estimated_price_per_kg:.0f} PKR per kg for {material.value.replace('_', ' ')}."
+            f"{estimate.estimated_price_per_kg:.0f} {unit} per kg for {material.value.replace('_', ' ')}."
         ),
         price_data=estimate,
     )
@@ -594,7 +621,7 @@ async def chat(
 
     if settings.DEMO_MODE and image is None:
         logger.info("DEMO_MODE enabled: returning deterministic local estimate")
-        return _demo_price_response(text)
+        return _demo_price_response(text, currency, country, city, neighborhood)
 
     agent_config = {"configurable": {"thread_id": picker_id}}
     agent_context = AgentContext(picker_id=picker_id)
@@ -602,7 +629,15 @@ async def chat(
     confirmed = parse_material_reply(text) if text and image is None else None
     if confirmed is not None:
         logger.info("Path A: short material answer '%s' → %s", text, confirmed.value)
-        response = _material_rate_response(confirmed, place, language)
+        response = _material_rate_response(
+            confirmed,
+            neighborhood.strip() or place,
+            language,
+            currency,
+            country,
+            city,
+            neighborhood,
+        )
         await asyncio.to_thread(
             _remember_thread,
             tf_region,
@@ -626,7 +661,7 @@ async def chat(
         except Exception as exc:
             logger.exception("Agent invocation failed for text-only path")
             if settings.ENABLE_LLM_FALLBACKS:
-                fallback = _deterministic_price_fallback(text)
+                fallback = _deterministic_price_fallback(text, currency, country, city, neighborhood)
                 if fallback is not None:
                     return fallback
             detail = (

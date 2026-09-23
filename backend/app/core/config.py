@@ -133,7 +133,11 @@ class Settings(BaseSettings):
         "other": ("Mixed / other material", "دیگر مواد", "ఇతర రకం"),
     }
 
-    # Baseline Seed Prices (PKR / kg)
+    # Baseline Seed Prices for the verified Pakistan / PKR market only
+    # (keyed by material value, denominated in PKR / kg). Other markets
+    # (e.g. India / INR, United States / USD) have NO verified seeds yet --
+    # the estimator must return "no market seed" for them instead of
+    # reusing or inventing PKR numbers. See price_estimator._seed_for().
     SEED_PRICES: dict[str, float] = {
         "plastic_pet": 140.0,
         "plastic_hdpe": 85.0,
@@ -145,7 +149,9 @@ class Settings(BaseSettings):
         "other": 50.0,
     }
 
-    # Price per kg sanity check bands (min, max in PKR)
+    # Price per kg sanity check bands for the verified Pakistan / PKR market
+    # only (min, max in PKR). Other explicit currencies skip the band check
+    # until per-market bands exist.
     PRICE_PER_KG_BANDS: dict[str, tuple[float, float]] = {
         "plastic_pet": (20.0, 200.0),
         "plastic_hdpe": (15.0, 150.0),

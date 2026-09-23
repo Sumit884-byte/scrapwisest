@@ -15,6 +15,7 @@ from app.schemas.market import (
     MAX_PLACE_PART_LEN,
     UNKNOWN_CURRENCY,
     is_plausible_currency,
+    market_key,
     normalize_currency,
     normalize_place_part,
 )
@@ -26,6 +27,11 @@ __all__ = [
     "is_plausible_currency",
     "normalize_currency",
     "normalize_place_part",
+    "market_key",
+    "same_country",
+    "same_city",
+    "same_neighborhood",
+    "neighborhood_label",
     "picker_place_from_tags",
     "picker_currency_from_tags",
     "picker_neighborhood_from_tags",
@@ -47,15 +53,25 @@ _ALIASES = {
 
 
 def normalize_location(value: str | None) -> str:
-    """Return a stable neighborhood label while retaining unknown locations."""
-    if not value:
+    """Return a stable neighborhood label while retaining unknown locations.
+
+    Market-agnostic: no city or country name is hardcoded or stripped, so a
+    city-only location such as ``"Multan"`` stays usable instead of
+    collapsing to an empty string.
+    """
+    if not value or not value.strip():
         return "unknown"
 
-    text = re.sub(r"\s+", " ", value.strip().lower())
+    original = value.strip()
+    text = re.sub(r"\s+", " ", original.lower())
     text = re.sub(r"\b(?:near|around|close to|ke qareeb|kay qareeb)\b", "", text)
     text = re.sub(r"[,\-]+", " ", text)
-    text = re.sub(r"\bmultan\b", "", text)
     text = re.sub(r"\s+", " ", text).strip()
+
+    if not text:
+        # The value was only filler words/punctuation -- keep the original
+        # text instead of returning an empty label.
+        return original.title()
 
     if text in _ALIASES:
         return _ALIASES[text]
@@ -65,6 +81,70 @@ def normalize_location(value: str | None) -> str:
             return canonical
 
     return text.title()
+
+
+def _fold_part(value: str | None) -> str:
+    """Case-folded comparison key for a structured place part."""
+    part = normalize_place_part(value)
+    return (part or "").lower()
+
+
+def same_country(first: str | None, second: str | None) -> bool:
+    """True when two country values name the same country (case-insensitive)."""
+    return _fold_part(first) == _fold_part(second)
+
+
+def same_city(
+    first_city: str | None,
+    first_country: str | None,
+    second_city: str | None,
+    second_country: str | None,
+) -> bool:
+    """True only when BOTH city and country match.
+
+    Comparing city names alone would confuse e.g. Springfield, USA with a
+    Springfield elsewhere, so the country is always part of the comparison.
+    """
+    return _fold_part(first_city) == _fold_part(second_city) and same_country(
+        first_country, second_country
+    )
+
+
+def neighborhood_label(neighborhood: str | None, location: str | None) -> Optional[str]:
+    """Best-effort normalized neighborhood label, or None when unknown."""
+    raw = (neighborhood or "").strip() or (location or "").strip()
+    if not raw or raw.strip().lower() == "unknown":
+        return None
+    normalized = normalize_location(raw)
+    if not normalized or normalized.strip().lower() == "unknown":
+        return None
+    return normalized
+
+
+def same_neighborhood(
+    first_neighborhood: str | None,
+    first_city: str | None,
+    first_country: str | None,
+    first_location: str | None = None,
+    second_neighborhood: str | None = None,
+    second_city: str | None = None,
+    second_country: str | None = None,
+    second_location: str | None = None,
+) -> bool:
+    """True only when neighborhood AND city AND country all match.
+
+    The city/country gate keeps an ``Income Colony`` in one city/country
+    from matching an unrelated ``Income Colony`` elsewhere. Either the
+    structured ``neighborhood`` field or the legacy free-text ``location``
+    may supply the label.
+    """
+    if not same_city(first_city, first_country, second_city, second_country):
+        return False
+    first_label = neighborhood_label(first_neighborhood, first_location)
+    second_label = neighborhood_label(second_neighborhood, second_location)
+    if first_label is None or second_label is None:
+        return False
+    return first_label.lower() == second_label.lower()
 
 
 # ---------------------------------------------------------------------------

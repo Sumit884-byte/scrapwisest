@@ -21,6 +21,7 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.market import (
     UNKNOWN_CURRENCY,
+    market_key,
     normalize_currency,
     normalize_place_part,
 )
@@ -120,10 +121,15 @@ class PriceReport(BaseModel):
 
         Reports must never be pooled across different market keys --
         500 PKR and 500 INR are completely different monetary values.
+
+        Delegates to :func:`app.schemas.market.market_key` (country +
+        currency) and appends the city scope, so there is exactly one
+        market-key normalization in the codebase.
         """
+        cur, country = market_key(self.country, self.currency)
         return (
-            (self.currency or UNKNOWN_CURRENCY).strip().upper() or UNKNOWN_CURRENCY,
-            (self.country or "").strip().lower(),
+            cur,
+            country,
             (self.city or "").strip().lower(),
         )
 

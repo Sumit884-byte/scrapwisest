@@ -47,3 +47,18 @@ def normalize_place_part(value: str | None) -> Optional[str]:
     """Strip a country/city/neighborhood part; empty becomes None."""
     text = (value or "").strip()
     return text or None
+
+
+def market_key(country: str | None, currency: str | None) -> tuple[str, str]:
+    """Canonical market identity: ``(currency, country)``.
+
+    Both parts use the same normalization as every report
+    (``normalize_currency`` + case-folded ``normalize_place_part``) so there
+    is exactly one market-key implementation in the codebase. Currency alone
+    is never the full identity -- a market is always country + currency
+    (e.g. ``("PKR", "pakistan")``). Missing country normalizes to ``""``
+    (the legacy/unknown market).
+    """
+    cur = normalize_currency(currency)
+    part = normalize_place_part(country)
+    return (cur, (part or "").lower())
