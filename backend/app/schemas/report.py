@@ -21,7 +21,6 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.market import (
     UNKNOWN_CURRENCY,
-    canonicalize_country,
     market_key,
     normalize_currency,
     normalize_place_part,
@@ -75,14 +74,7 @@ class RawExtraction(BaseModel):
             return None
         return normalize_currency(v if isinstance(v, str) else str(v))
 
-    @field_validator("country", mode="before")
-    @classmethod
-    def _normalize_country(cls, v):
-        if v is None:
-            return None
-        return canonicalize_country(v if isinstance(v, str) else str(v))
-
-    @field_validator("city", "neighborhood", "location_text", mode="before")
+    @field_validator("country", "city", "neighborhood", "location_text", mode="before")
     @classmethod
     def _normalize_place(cls, v):
         if v is None:
@@ -117,14 +109,7 @@ class PriceReport(BaseModel):
             return UNKNOWN_CURRENCY
         return normalize_currency(v if isinstance(v, str) else str(v))
 
-    @field_validator("country", mode="before")
-    @classmethod
-    def _normalize_country(cls, v):
-        if v is None:
-            return None
-        return canonicalize_country(v if isinstance(v, str) else str(v))
-
-    @field_validator("city", "neighborhood", mode="before")
+    @field_validator("country", "city", "neighborhood", mode="before")
     @classmethod
     def _normalize_place(cls, v):
         if v is None:
@@ -136,8 +121,17 @@ class PriceReport(BaseModel):
 
         Reports must never be pooled across different market keys --
         500 PKR and 500 INR are completely different monetary values.
+
+        Delegates to :func:`app.schemas.market.market_key` (country +
+        currency) and appends the city scope, so there is exactly one
+        market-key normalization in the codebase.
         """
-        return market_key(self.currency, self.country, self.city)
+        cur, country = market_key(self.country, self.currency)
+        return (
+            cur,
+            country,
+            (self.city or "").strip().lower(),
+        )
 
 
 class AnomalyVerdict(BaseModel):
@@ -180,14 +174,7 @@ class ReportCreate(BaseModel):
             return UNKNOWN_CURRENCY
         return normalize_currency(v if isinstance(v, str) else str(v))
 
-    @field_validator("country", mode="before")
-    @classmethod
-    def _normalize_country(cls, v):
-        if v is None:
-            return None
-        return canonicalize_country(v if isinstance(v, str) else str(v))
-
-    @field_validator("city", "neighborhood", mode="before")
+    @field_validator("country", "city", "neighborhood", mode="before")
     @classmethod
     def _normalize_place(cls, v):
         if v is None:

@@ -133,114 +133,35 @@ class Settings(BaseSettings):
         "other": ("Mixed / other material", "دیگر مواد", "ఇతర రకం"),
     }
 
-    # Baseline seed prices and sanity bands, keyed by ISO currency then material.
-    # SEED_PRICES / PRICE_PER_KG_BANDS stay as the PKR table for older imports.
-    SEED_PRICES_BY_CURRENCY: dict[str, dict[str, float]] = {
-        "PKR": {
-            "plastic_pet": 140.0,
-            "plastic_hdpe": 85.0,
-            "glass": 8.0,
-            "metal_aluminum": 1050.0,
-            "metal_steel": 195.0,
-            "cardboard": 28.0,
-            "mixed_paper": 42.0,
-            "other": 50.0,
-        },
-        "INR": {
-            "plastic_pet": 28.0,
-            "plastic_hdpe": 18.0,
-            "glass": 3.0,
-            "metal_aluminum": 160.0,
-            "metal_steel": 32.0,
-            "cardboard": 10.0,
-            "mixed_paper": 12.0,
-            "other": 15.0,
-        },
-        "USD": {
-            "plastic_pet": 0.45,
-            "plastic_hdpe": 0.35,
-            "glass": 0.05,
-            "metal_aluminum": 1.10,
-            "metal_steel": 0.20,
-            "cardboard": 0.08,
-            "mixed_paper": 0.10,
-            "other": 0.15,
-        },
-        "BDT": {
-            "plastic_pet": 32.0,
-            "plastic_hdpe": 20.0,
-            "glass": 4.0,
-            "metal_aluminum": 180.0,
-            "metal_steel": 35.0,
-            "cardboard": 12.0,
-            "mixed_paper": 14.0,
-            "other": 16.0,
-        },
-        "NPR": {
-            "plastic_pet": 30.0,
-            "plastic_hdpe": 20.0,
-            "glass": 3.0,
-            "metal_aluminum": 170.0,
-            "metal_steel": 34.0,
-            "cardboard": 11.0,
-            "mixed_paper": 13.0,
-            "other": 15.0,
-        },
+    # Baseline Seed Prices for the verified Pakistan / PKR market only
+    # (keyed by material value, denominated in PKR / kg). Other markets
+    # (e.g. India / INR, United States / USD) have NO verified seeds yet --
+    # the estimator must return "no market seed" for them instead of
+    # reusing or inventing PKR numbers. See price_estimator._seed_for().
+    SEED_PRICES: dict[str, float] = {
+        "plastic_pet": 140.0,
+        "plastic_hdpe": 85.0,
+        "glass": 8.0,
+        "metal_aluminum": 1050.0,
+        "metal_steel": 195.0,
+        "cardboard": 28.0,
+        "mixed_paper": 42.0,
+        "other": 50.0,
     }
-    PRICE_BANDS_BY_CURRENCY: dict[str, dict[str, tuple[float, float]]] = {
-        "PKR": {
-            "plastic_pet": (20.0, 200.0),
-            "plastic_hdpe": (15.0, 150.0),
-            "glass": (2.0, 20.0),
-            "metal_aluminum": (150.0, 1500.0),
-            "metal_steel": (30.0, 200.0),
-            "cardboard": (5.0, 40.0),
-            "mixed_paper": (5.0, 30.0),
-            "other": (5.0, 500.0),
-        },
-        "INR": {
-            "plastic_pet": (8.0, 60.0),
-            "plastic_hdpe": (6.0, 45.0),
-            "glass": (1.0, 10.0),
-            "metal_aluminum": (80.0, 280.0),
-            "metal_steel": (12.0, 60.0),
-            "cardboard": (3.0, 25.0),
-            "mixed_paper": (3.0, 25.0),
-            "other": (2.0, 80.0),
-        },
-        "USD": {
-            "plastic_pet": (0.10, 1.50),
-            "plastic_hdpe": (0.08, 1.20),
-            "glass": (0.01, 0.40),
-            "metal_aluminum": (0.30, 3.00),
-            "metal_steel": (0.05, 0.80),
-            "cardboard": (0.02, 0.30),
-            "mixed_paper": (0.02, 0.40),
-            "other": (0.02, 2.00),
-        },
-        "BDT": {
-            "plastic_pet": (10.0, 70.0),
-            "plastic_hdpe": (8.0, 50.0),
-            "glass": (1.0, 12.0),
-            "metal_aluminum": (90.0, 320.0),
-            "metal_steel": (15.0, 70.0),
-            "cardboard": (4.0, 28.0),
-            "mixed_paper": (4.0, 28.0),
-            "other": (3.0, 90.0),
-        },
-        "NPR": {
-            "plastic_pet": (10.0, 65.0),
-            "plastic_hdpe": (8.0, 48.0),
-            "glass": (1.0, 10.0),
-            "metal_aluminum": (85.0, 300.0),
-            "metal_steel": (14.0, 65.0),
-            "cardboard": (3.0, 26.0),
-            "mixed_paper": (3.0, 26.0),
-            "other": (3.0, 85.0),
-        },
+
+    # Price per kg sanity check bands for the verified Pakistan / PKR market
+    # only (min, max in PKR). Other explicit currencies skip the band check
+    # until per-market bands exist.
+    PRICE_PER_KG_BANDS: dict[str, tuple[float, float]] = {
+        "plastic_pet": (20.0, 200.0),
+        "plastic_hdpe": (15.0, 150.0),
+        "glass": (2.0, 20.0),
+        "metal_aluminum": (150.0, 1500.0),
+        "metal_steel": (30.0, 200.0),
+        "cardboard": (5.0, 40.0),
+        "mixed_paper": (5.0, 30.0),
+        "other": (5.0, 500.0),
     }
-    SEED_PRICES: dict[str, float] = SEED_PRICES_BY_CURRENCY["PKR"]
-    PRICE_PER_KG_BANDS: dict[str, tuple[float, float]] = PRICE_BANDS_BY_CURRENCY["PKR"]
 
 
 @lru_cache()

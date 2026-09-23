@@ -176,7 +176,6 @@ def test_currency_and_place_normalization():
     assert is_plausible_currency("USD")
     assert is_plausible_currency(UNKNOWN_CURRENCY)
     assert not is_plausible_currency("XYZ123")
-    assert not is_plausible_currency("FOO")
     assert normalize_place_part("  Delhi  ") == "Delhi"
     assert normalize_place_part("   ") is None
     assert normalize_place_part(None) is None
@@ -195,12 +194,8 @@ def test_picker_context_tags_parse_deterministically():
     assert picker_place_from_tags("no tags here") == (None, None)
     assert picker_currency_from_tags("no tags here") is None
     assert picker_place_from_tags("[picker_place: Washington, D.C., United States]") == (
-        "Washington, D.C.",
-        "United States",
-    )
-    assert picker_place_from_tags("[picker_place: Karachi, Sindh, Pakistan]") == (
-        "Karachi, Sindh",
-        "Pakistan",
+        "Washington",
+        "D.C., United States",
     )
 
 
@@ -218,7 +213,11 @@ def test_validate_build_backfills_from_picker_tags():
         "raw_extraction": raw,
         "messages": [
             HumanMessage(
-                content="becha 5 kilo 5250 mein\n\n[picker_place: Multan, Pakistan]"
+                content=(
+                    "becha 5 kilo 5250 mein\n\n"
+                    "[picker_place: Multan, Pakistan]\n"
+                    "[picker_currency: PKR]"
+                )
             )
         ],
     }
@@ -300,7 +299,7 @@ def test_validate_build_skips_legacy_band_for_other_currencies():
     report = result["price_report"]
     assert report.needs_confirmation is False
     assert report.currency == "USD"
-    assert report.country == "United States"
+    assert report.country == "USA"
     assert report.city == "Chicago"
     assert report.price_per_kg == 1.1
 

@@ -31,20 +31,27 @@ from app.schemas.report import (
     RawExtraction,
 )
 from app.services.anomaly_detector import anomaly_detector_service
-from app.schemas.market import canonicalize_country, is_unknown_currency, resolve_currency
 from app.services.location_resolver import (
+    UNKNOWN_CURRENCY,
+    is_plausible_currency,
+    normalize_currency,
     normalize_location,
     normalize_place_part,
     picker_currency_from_tags,
     picker_neighborhood_from_tags,
     picker_place_from_tags,
+    resolve_market_context,
     validate_market_fields,
 )
-from app.services.price_estimator import price_band_for
 
 logger = logging.getLogger(__name__)
 
 KNOWN_MATERIALS = [m.value for m in MaterialType]
+
+PRICE_PER_KG_BANDS = {
+    MaterialType(k): v for k, v in settings.PRICE_PER_KG_BANDS.items()
+}
+
 
 def _material_label(material) -> str:
     return material.value if hasattr(material, "value") else str(material)
@@ -136,13 +143,16 @@ reason, or fits a pattern with no real-world explanation.
 
 
 def _recent_prices_for(report: PriceReport) -> List[float]:
-    """Trusted price/kg history for this material in the same market and area."""
-    wanted = report.market_key()
+    """Trusted price/kg history for this material in this area.
+
+    NOTE (Step 1): market scoping (same currency/country/city pooling)
+    is deliberately unchanged here -- a later step will stop pooling
+    across incompatible markets. Field names are generic already.
+    """
     return [
         r.price_per_kg
         for r in report_repo.trusted_reports()
         if r.material_type == report.material_type
-        and r.market_key() == wanted
         and r.location.strip().lower() == report.location.strip().lower()
     ]
 
@@ -220,27 +230,46 @@ def validate_and_build(state: PipelineState) -> dict:
     if raw.total_price is None:
         reasons.append("missing price")
 
-    # Structured market fields: explicit LLM extraction wins; the picker's
-    # saved settings (context tags) backfill what the message didn't state.
+    # Structured market fields via the single canonical resolver:
+    # explicit LLM extraction wins; picker settings (message tags, plus the
+    # per-request slot fallback for when the LLM's rewritten subagent
+    # sentence drops the tags) backfill what the message didn't state.
     # Nothing here is guessed -- genuinely missing stays missing.
     tag_city, tag_country = picker_place_from_tags(message)
     tag_currency = picker_currency_from_tags(message)
     tag_neighborhood = picker_neighborhood_from_tags(message)
+    try:
+        from app.agent.tool_outputs import get_market_context
 
-    country = canonicalize_country(raw.country or tag_country)
-    city = normalize_place_part(raw.city or tag_city)
-    neighborhood = normalize_place_part(raw.neighborhood or tag_neighborhood)
-    currency = resolve_currency(raw.currency, tag_currency, country)
+        slot_market = get_market_context() or {}
+    except Exception:
+        slot_market = {}
+
+    resolved = resolve_market_context(
+        explicit_country=getattr(raw, "country", None),
+        explicit_currency=getattr(raw, "currency", None),
+        explicit_city=getattr(raw, "city", None),
+        explicit_neighborhood=getattr(raw, "neighborhood", None),
+        picker_country=tag_country or slot_market.get("country"),
+        picker_currency=tag_currency or slot_market.get("currency"),
+        picker_city=tag_city or slot_market.get("city"),
+        picker_neighborhood=tag_neighborhood or slot_market.get("neighborhood"),
+    )
+    currency = resolved.currency
+    country = resolved.country
+    city = resolved.city
+    neighborhood = resolved.neighborhood
     reasons.extend(validate_market_fields(currency, country, city, neighborhood))
-    if is_unknown_currency(currency):
-        reasons.append("currency unknown")
 
     price_per_kg = 0.0
     if raw.quantity_kg and raw.total_price:
         price_per_kg = raw.total_price / raw.quantity_kg
-        band = price_band_for(raw.material_type, currency)
-        if band is not None:
-            min_price, max_price = band
+        # The sanity bands are denominated in one market's currency. They
+        # only apply to that market (or to legacy reports that never named
+        # a currency); other explicit currencies skip the band check until
+        # per-market bands exist.
+        if currency in ("PKR", UNKNOWN_CURRENCY):
+            min_price, max_price = PRICE_PER_KG_BANDS[raw.material_type]
             if not (min_price <= price_per_kg <= max_price):
                 reasons.append(
                     f"price/kg ({price_per_kg:.0f}) outside expected range "
@@ -262,6 +291,9 @@ def validate_and_build(state: PipelineState) -> dict:
     )
     reasons.extend(raw.unclear_fields)
 
+    raw_location = getattr(raw, "location_text", None)
+    if raw_location and raw_location.strip().lower() == "unknown":
+        raw_location = None
     price_report = PriceReport(
         material_type=raw.material_type,
         quantity_kg=raw.quantity_kg or 0.0,
@@ -271,7 +303,7 @@ def validate_and_build(state: PipelineState) -> dict:
         country=country,
         city=city,
         neighborhood=neighborhood,
-        location=normalize_location(raw.location_text or neighborhood),
+        location=normalize_location(raw_location or neighborhood),
         timestamp=datetime.now(timezone.utc),
         needs_confirmation=bool(reasons),
         confirmation_reason="; ".join(reasons) if reasons else None,

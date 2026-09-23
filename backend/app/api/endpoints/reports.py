@@ -19,7 +19,6 @@ from app.services.location_resolver import (
     normalize_place_part,
     validate_market_fields,
 )
-from app.services.price_estimator import price_band_for
 from app.services.anomaly_detector import anomaly_detector_service
 
 logger = logging.getLogger(__name__)
@@ -80,15 +79,25 @@ async def create_report(payload: ReportCreate):
     if is_unknown_currency(currency):
         reasons.append("currency unknown")
 
-    band = price_band_for(payload.material_type, currency)
-    if band is not None:
-        min_band, max_band = band
+    mat_key = (
+        payload.material_type.value
+        if hasattr(payload.material_type, "value")
+        else str(payload.material_type)
+    )
+    if currency == "PKR" and mat_key in settings.PRICE_PER_KG_BANDS:
+        min_band, max_band = settings.PRICE_PER_KG_BANDS[mat_key]
         if not (min_band <= price_per_kg <= max_band):
             reasons.append(
                 f"Price per kg ({price_per_kg:.1f}) outside sanity range "
                 f"[{min_band}, {max_band}]"
             )
 
+    # Explicit API values take precedence over any defaults -- never
+    # overwrite them. The legacy `location` stays as the raw compatible
+    # label; structured fields remain authoritative for the estimator.
+    raw_location = (payload.location or "").strip()
+    if not raw_location or raw_location.lower() == "unknown":
+        raw_location = neighborhood or "unknown"
     report = PriceReport(
         material_type=payload.material_type,
         quantity_kg=payload.quantity_kg,
@@ -98,7 +107,7 @@ async def create_report(payload: ReportCreate):
         country=country,
         city=city,
         neighborhood=neighborhood,
-        location=normalize_location(payload.location or neighborhood),
+        location=normalize_location(raw_location),
         timestamp=datetime.now(timezone.utc),
         needs_confirmation=bool(reasons),
         confirmation_reason="; ".join(reasons) if reasons else None,

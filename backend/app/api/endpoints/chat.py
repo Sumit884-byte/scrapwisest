@@ -23,7 +23,6 @@ from app.repositories.report_repository import report_repo
 from app.schemas.chat import ChatResponse, ReportReviewData
 from app.schemas.price import PriceEstimate
 from app.schemas.report import MaterialType, PriceReport
-from app.schemas.market import canonicalize_country, currency_label, resolve_currency
 from app.services.price_estimator import price_estimator_service
 from app.services.image_service import image_service
 
@@ -138,9 +137,16 @@ def picker_context_tags(
     neighborhood: str = "",
 ) -> str:
     bits: list[str] = []
-    place = join_place(city, country)
-    if place:
-        bits.append(f"[picker_place: {place}]")
+    city_part = (city or "").strip()
+    country_part = (country or "").strip()
+    if city_part and country_part:
+        bits.append(f"[picker_place: {city_part}, {country_part}]")
+    elif city_part:
+        bits.append(f"[picker_place: {city_part}]")
+    elif country_part:
+        # Leading comma keeps "[picker_place: , Country]" parsing as
+        # (city=None, country=Country) instead of misreading it as a city.
+        bits.append(f"[picker_place: , {country_part}]")
     if neighborhood and neighborhood.strip():
         bits.append(f"[picker_neighborhood: {neighborhood.strip()}]")
     if currency and currency.strip():
@@ -183,69 +189,41 @@ def hindi_words(text: str) -> str:
     return re.sub(r"\s+,", ",", "".join(out)).strip(" ,")
 
 
-def _money_word(currency: str, language: str) -> str:
-    code = currency_label(currency)
+def _material_rate_reply(label: str, price: str, place: str, language: str) -> str:
     lang = (language or "").strip().lower()
-    if lang == "hi":
-        if code == "USD":
-            return "डॉलर"
-        if code:
-            return f"{code}"
-        return "रुपए"
-    if lang in {"hi-latn", "ur-latn", "te", "te-latn"}:
-        return code or "rupay"
-    if lang == "ur":
-        return code or "روپے"
-    return code or "rupees"
-
-
-def _material_rate_reply(
-    label: str,
-    price: str,
-    place: str,
-    language: str,
-    currency: str = "",
-) -> str:
-    lang = (language or "").strip().lower()
-    money = _money_word(currency, language)
     if lang in {"hi"}:
         hi_label = hindi_words(label) or label
         hi_place = hindi_words(place)
         return (
-            f"{hi_label} की कीमत {hi_place} में लगभग {price} {money} किलो है।"
+            f"{hi_label} की कीमत {hi_place} में लगभग {price} रुपए किलो है।"
             if hi_place
-            else f"{hi_label} की कीमत लगभग {price} {money} किलो है।"
+            else f"{hi_label} की कीमत लगभग {price} रुपए किलो है।"
         )
     if lang in {"hi-latn"}:
         return (
-            f"{label} ka rate {place} mein lagbhag {price} {money} kilo hai."
+            f"{label} ka rate {place} mein lagbhag {price} rupay kilo hai."
             if place
-            else f"{label} ka rate lagbhag {price} {money} kilo hai."
+            else f"{label} ka rate lagbhag {price} rupay kilo hai."
         )
     if lang in {"ur"}:
         return (
-            f"{label} کا ریٹ {place} میں تقریباً {price} {money} کلو ہے۔"
+            f"{label} کا ریٹ {place} میں تقریباً {price} روپے کلو ہے۔"
             if place
-            else f"{label} کا ریٹ تقریباً {price} {money} کلو ہے۔"
+            else f"{label} کا ریٹ تقریباً {price} روپے کلو ہے۔"
         )
     if lang in {"ur-latn"}:
         return (
-            f"{label} ka rate {place} mein taqreeban {price} {money} kilo hai."
+            f"{label} ka rate {place} mein taqreeban {price} rupay kilo hai."
             if place
-            else f"{label} ka rate taqreeban {price} {money} kilo hai."
+            else f"{label} ka rate taqreeban {price} rupay kilo hai."
         )
     if lang in {"te", "te-latn"}:
         return (
-            f"{place} lo {label} rate sumaru {price} {money} kilo."
+            f"{place} lo {label} rate sumaru {price} rupayalu kilo."
             if place
-            else f"{label} rate sumaru {price} {money} kilo."
+            else f"{label} rate sumaru {price} rupayalu kilo."
         )
-    unit = money
-    return (
-        f"{label} is {price} {unit} per kg in {place}."
-        if place
-        else f"{label} is about {price} {unit} per kg."
-    )
+    return f"{label} is {price} rupees per kg in {place}." if place else f"{label} is about {price} rupees per kg."
 
 
 def _material_rate_response(
@@ -255,14 +233,15 @@ def _material_rate_response(
     currency: str = "",
     country: str = "",
     city: str = "",
+    neighborhood: str = "",
 ) -> ChatResponse:
-    currency = resolve_currency(currency, None, country)
     estimate = price_estimator_service.estimate(
         material,
         location,
-        currency=currency,
-        country=country or None,
-        city=city or None,
+        currency=(currency.strip() or "unknown"),
+        country=country.strip() or None,
+        city=city.strip() or None,
+        neighborhood=neighborhood.strip() or None,
     )
     label = _MATERIAL_LABEL.get(material, material.value.replace("_", " "))
     price = _format_rate(estimate.estimated_price_per_kg)
@@ -270,7 +249,7 @@ def _material_rate_response(
     if place.lower() == "unknown":
         place = ""
     return ChatResponse(
-        reply=_material_rate_reply(label, price, place, language, currency),
+        reply=_material_rate_reply(label, price, place, language),
         price_data=estimate,
     )
 
@@ -406,8 +385,32 @@ def _remember_thread(tf_region: str | None, picker_id: str, user_text: str, assi
         logger.warning("Could not persist turn to agent thread", exc_info=True)
 
 
-def _invoke_agent(tf_region: str | None, text: str, agent_config: dict, agent_context: AgentContext):
-    begin(agent_context.picker_id)
+def _picker_market(country: str = "", currency: str = "", city: str = "", neighborhood: str = "") -> dict:
+    """Canonical picker defaults for this request (single representation)."""
+    from app.schemas.market import MarketContext
+
+    ctx = MarketContext(
+        country=country or None,
+        currency=currency or None,
+        city=city or None,
+        neighborhood=neighborhood or None,
+    )
+    return {
+        "country": ctx.country,
+        "currency": ctx.currency,
+        "city": ctx.city,
+        "neighborhood": ctx.neighborhood,
+    }
+
+
+def _invoke_agent(
+    tf_region: str | None,
+    text: str,
+    agent_config: dict,
+    agent_context: AgentContext,
+    picker_market: dict | None = None,
+):
+    begin(agent_context.picker_id, picker_market)
     try:
         result = get_agent(tf_region).invoke(
             {"messages": [{"role": "user", "content": text}]},
@@ -442,16 +445,63 @@ def _as_report_data(value) -> Optional[ReportReviewData]:
     return None
 
 
+def _reconcile_estimator_with_report(
+    price: Optional[PriceEstimate],
+    report: Optional[ReportReviewData],
+) -> Optional[PriceEstimate]:
+    """Ensure one location context for the report and the estimator.
+
+    When the same turn produced both a sale report and a price estimate,
+    the estimate must use the report's canonical market (Picker context
+    -> Report -> Estimator). If the captured estimate was computed in a
+    different currency, recompute it deterministically in the report's
+    market instead of returning two diverging contexts.
+    """
+    if price is None or report is None:
+        return price
+    try:
+        from app.schemas.market import UNKNOWN_CURRENCY
+        from app.services.location_resolver import normalize_currency as _norm_cur
+
+        report_cur = _norm_cur(report.currency)
+        price_cur = _norm_cur(price.currency)
+        if report_cur == UNKNOWN_CURRENCY or price_cur == report_cur:
+            return price
+        material = report.material_type
+        location = report.neighborhood or report.location or report.city or "unknown"
+        fixed = price_estimator_service.estimate(
+            material,
+            location,
+            currency=report.currency,
+            country=report.country,
+            city=report.city,
+            neighborhood=report.neighborhood,
+        )
+        logger.info(
+            "Reconciled estimator currency %s -> report currency %s for %s",
+            price_cur,
+            report_cur,
+            material,
+        )
+        return fixed
+    except Exception:
+        logger.warning("Estimator reconciliation failed; keeping captured estimate", exc_info=True)
+        return price
+
+
 def _chat_response(
     agent_result: dict,
     region_id: str | None = None,
     price_data: Optional[PriceEstimate] = None,
     report_data: Optional[ReportReviewData] = None,
 ) -> ChatResponse:
+    price = _as_price_data(price_data)
+    report = _as_report_data(report_data) or _extract_report_data(agent_result)
+    price = _reconcile_estimator_with_report(price, report)
     return ChatResponse(
         reply=_extract_reply(agent_result),
-        price_data=_as_price_data(price_data),
-        report_data=_as_report_data(report_data) or _extract_report_data(agent_result),
+        price_data=price,
+        report_data=report,
         region=region_info(region_id)["id"],
     )
 
@@ -531,7 +581,7 @@ def _persist_pending_review(response: ChatResponse, picker_id: str) -> ChatRespo
     return response
 
 
-def _demo_price_response(text: str) -> ChatResponse:
+def _demo_price_response(text: str, currency: str = "", country: str = "", city: str = "", neighborhood: str = "") -> ChatResponse:
     """Provide a no-API-key response for local UI testing only."""
     lowered = text.lower()
     material_aliases = (
@@ -549,17 +599,22 @@ def _demo_price_response(text: str) -> ChatResponse:
     )
     location = "Income Colony" if "income colony" in lowered else "Samejabad"
     estimate = price_estimator_service.estimate(
-        material, location, currency="PKR", country="Pakistan", city="Multan"
+        material,
+        neighborhood.strip() or location,
+        currency=(currency.strip() or "unknown"),
+        country=country.strip() or None,
+        city=city.strip() or None,
+        neighborhood=neighborhood.strip() or None,
     )
-    code = estimate.currency or "PKR"
+    unit = estimate.currency if estimate.currency.lower() != "unknown" else "PKR"
     reply = (
-        f"Demo estimate: {estimate.estimated_price_per_kg:.0f} {code} per kg for "
+        f"Demo estimate: {estimate.estimated_price_per_kg:.0f} {unit} per kg for "
         f"{material.value.replace('_', ' ')} in {location}."
     )
     return ChatResponse(reply=reply, price_data=estimate)
 
 
-def _deterministic_price_fallback(text: str) -> Optional[ChatResponse]:
+def _deterministic_price_fallback(text: str, currency: str = "", country: str = "", city: str = "", neighborhood: str = "") -> Optional[ChatResponse]:
     """Answer simple price questions when the LLM service is unavailable."""
     lowered = text.lower()
     price_words = ("rate", "price", "worth", "qeemat", "dhar", "kitna", "kya hai")
@@ -584,13 +639,18 @@ def _deterministic_price_fallback(text: str) -> Optional[ChatResponse]:
 
     location = "Income Colony" if "income colony" in lowered else "Samejabad"
     estimate = price_estimator_service.estimate(
-        material, location, currency="PKR", country="Pakistan", city="Multan"
+        material,
+        neighborhood.strip() or location,
+        currency=(currency.strip() or "unknown"),
+        country=country.strip() or None,
+        city=city.strip() or None,
+        neighborhood=neighborhood.strip() or None,
     )
-    code = estimate.currency or "PKR"
+    unit = estimate.currency if estimate.currency.lower() != "unknown" else "PKR"
     return ChatResponse(
         reply=(
             f"The current fallback estimate is about "
-            f"{estimate.estimated_price_per_kg:.0f} {code} per kg for {material.value.replace('_', ' ')}."
+            f"{estimate.estimated_price_per_kg:.0f} {unit} per kg for {material.value.replace('_', ' ')}."
         ),
         price_data=estimate,
     )
@@ -622,11 +682,7 @@ async def chat(
 ):
     text = message.strip()
     tf_region = normalize_region(region)
-    country = canonicalize_country(country) or country.strip()
-    city = city.strip()
-    currency = resolve_currency(currency, None, country)
-    neighborhood = neighborhood.strip()
-    place = join_place(city, country) or neighborhood or "unknown"
+    place = join_place(city, country) or "unknown"
     logger.info(
         "=== POST /chat received: picker_id='%s' text='%s' image=%s region=%s place='%s' lang='%s'",
         picker_id, text, image.filename if image else None, tf_region, place, language,
@@ -643,16 +699,23 @@ async def chat(
 
     if settings.DEMO_MODE and image is None:
         logger.info("DEMO_MODE enabled: returning deterministic local estimate")
-        return _demo_price_response(text)
+        return _demo_price_response(text, currency, country, city, neighborhood)
 
     agent_config = {"configurable": {"thread_id": picker_id}}
     agent_context = AgentContext(picker_id=picker_id)
+    picker_market = _picker_market(country, currency, city, neighborhood)
 
     confirmed = parse_material_reply(text) if text and image is None else None
     if confirmed is not None:
         logger.info("Path A: short material answer '%s' → %s", text, confirmed.value)
         response = _material_rate_response(
-            confirmed, place, language, currency, country, city
+            confirmed,
+            neighborhood.strip() or place,
+            language,
+            currency,
+            country,
+            city,
+            neighborhood,
         )
         await asyncio.to_thread(
             _remember_thread,
@@ -673,11 +736,12 @@ async def chat(
                 with_picker_context(text, language, city, country, currency, neighborhood),
                 agent_config,
                 agent_context,
+                picker_market,
             )
         except Exception as exc:
             logger.exception("Agent invocation failed for text-only path")
             if settings.ENABLE_LLM_FALLBACKS:
-                fallback = _deterministic_price_fallback(text)
+                fallback = _deterministic_price_fallback(text, currency, country, city, neighborhood)
                 if fallback is not None:
                     return fallback
             detail = (
@@ -750,6 +814,7 @@ async def chat(
             augmented_content,
             agent_config,
             agent_context,
+            picker_market,
         )
     except Exception:
         logger.exception("Agent invocation failed for photo+text path")

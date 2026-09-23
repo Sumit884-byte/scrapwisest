@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query
 from app.core.config import settings
-from app.schemas.market import resolve_currency
+from app.schemas.market import normalize_currency
 from app.schemas.material import MaterialInfo, MaterialListResponse
 from app.schemas.report import MaterialType
 
@@ -31,11 +31,11 @@ async def get_materials(
         name_ur = names[1] if len(names) > 1 else ""
         name_te = names[2] if len(names) > 2 else ""
 
-        code = resolve_currency(currency, None, None)
-        seeds = settings.SEED_PRICES_BY_CURRENCY.get(code, settings.SEED_PRICES)
-        bands = settings.PRICE_BANDS_BY_CURRENCY.get(code, settings.PRICE_PER_KG_BANDS)
-        seed_price = seeds.get(mat_key, 50.0)
-        price_band = bands.get(mat_key, (5.0, 500.0))
+        code = normalize_currency(currency)
+        if code == "unknown":
+            code = "PKR"
+        seed_price = settings.SEED_PRICES.get(mat_key, 50.0)
+        price_band = settings.PRICE_PER_KG_BANDS.get(mat_key, (5.0, 500.0))
 
         items.append(
             MaterialInfo(
