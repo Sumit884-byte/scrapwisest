@@ -120,6 +120,39 @@ class Settings(BaseSettings):
     # medians. Verified per-market seeds are NOT expired by this window --
     # when no fresh reports exist the estimator falls back to the seed.
     REPORT_FRESHNESS_DAYS: int = 30
+    # Step 11: forecasting foundation (leakage-free baseline over Step 10
+    # daily history). These settings answer "do we have enough trustworthy
+    # historical observations to attempt a forecast?" -- passing the minimum
+    # threshold only permits an attempt, it never claims accuracy.
+    #
+    # Freshness vs history: REPORT_FRESHNESS_DAYS answers "is this report
+    # fresh enough for TODAY's price estimate?" Forecasting instead uses the
+    # explicit FORECAST_TRAINING_WINDOW_DAYS window ending at the forecast
+    # origin (historical_end). A report stale for the current estimate is
+    # still valid training data when it falls inside the training window.
+    # Minimum history: at least FORECAST_MIN_POINTS daily buckets spanning at
+    # least FORECAST_MIN_DAYS calendar days (start..end inclusive) inside the
+    # window, in the EXACT requested market/scope (no broadening, no seeds).
+    FORECAST_MIN_POINTS: int = 5
+    FORECAST_MIN_DAYS: int = 5
+    # Baseline: mean of the most recent FORECAST_BASELINE_WINDOW observed
+    # daily average_price values (price_per_kg, oldest -> newest, no
+    # resampling, no forward-fill, deterministic, no ML dependencies).
+    # Window 3 smooths single-day noise while staying responsive, and mirrors
+    # the existing MIN_REPORTS_FOR_BASELINE=3 convention.
+    FORECAST_BASELINE_WINDOW: int = 3
+    # Explicit training window (days, ending at the forecast origin). Only
+    # observations with date > origin - window are used.
+    FORECAST_TRAINING_WINDOW_DAYS: int = 180
+    # Modest default horizon; requests are validated as
+    # 1 <= horizon <= MAX_FORECAST_HORIZON_DAYS.
+    FORECAST_HORIZON_DAYS: int = 7
+    MAX_FORECAST_HORIZON_DAYS: int = 14
+    # Chronological holdout for the baseline diagnostic: when the training
+    # series holds at least MIN_POINTS + VALIDATION_POINTS buckets, the last
+    # VALIDATION_POINTS buckets form the holdout (train prefix only fits the
+    # baseline; validation_mae is diagnostic, never confidence).
+    FORECAST_VALIDATION_POINTS: int = 2
     LOW_RATIO: float = 0.5
     HIGH_RATIO: float = 2.0
     MIN_REPORTS_TO_TRAIN_ML: int = 50
