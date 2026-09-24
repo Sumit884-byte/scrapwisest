@@ -133,11 +133,17 @@ class Settings(BaseSettings):
         "other": ("Mixed / other material", "دیگر مواد", "ఇతర రకం"),
     }
 
-    # Baseline Seed Prices for the verified Pakistan / PKR market only
-    # (keyed by material value, denominated in PKR / kg). Other markets
-    # (e.g. India / INR, United States / USD) have NO verified seeds yet --
-    # the estimator must return "no market seed" for them instead of
-    # reusing or inventing PKR numbers. See price_estimator._seed_for().
+    # Baseline Seed Prices for the verified Pakistan / PKR market only.
+    #
+    # Step 6 invariant: a seed is valid ONLY for the market it belongs to,
+    # i.e. (material, market) uniquely identifies a seed -- NEVER material
+    # alone. ``SEED_PRICES`` below stores the raw verified numbers (material
+    # value -> PKR/kg) for that single market; it is NOT a global table.
+    # Other markets (e.g. India / INR, United States / USD) have NO verified
+    # seeds yet -- look them up via ``seed_price_for()`` (which enforces the
+    # canonical ``market_key`` identity) and treat a missing entry as
+    # "no market seed" instead of reusing or inventing PKR numbers.
+    # See ``app.services.price_estimator._seed_for()``.
     SEED_PRICES: dict[str, float] = {
         "plastic_pet": 140.0,
         "plastic_hdpe": 85.0,
@@ -149,9 +155,20 @@ class Settings(BaseSettings):
         "other": 50.0,
     }
 
+    # The single verified seed market. Derived via the canonical
+    # ``market_key(country, currency)`` helper -- never duplicated as
+    # "Pakistan/PKR", "pk", "pakistan_pkr", etc.
+    SEED_MARKET_COUNTRY: str = "Pakistan"
+    SEED_MARKET_CURRENCY: str = "PKR"
+    # Human-readable provenance for the static baselines. No seed-management
+    # system, no external APIs, no conversion -- just a label so callers can
+    # surface source/status without inventing per-market numbers.
+    SEED_SOURCE: str = "verified Pakistan/PKR baseline"
+
     # Price per kg sanity check bands for the verified Pakistan / PKR market
-    # only (min, max in PKR). Other explicit currencies skip the band check
-    # until per-market bands exist.
+    # only (min, max in PKR). They are market-scoped exactly like seeds:
+    # look them up via ``price_band_for()``. Other explicit markets skip the
+    # band check until per-market bands exist -- never convert PKR bands.
     PRICE_PER_KG_BANDS: dict[str, tuple[float, float]] = {
         "plastic_pet": (20.0, 200.0),
         "plastic_hdpe": (15.0, 150.0),
@@ -162,6 +179,85 @@ class Settings(BaseSettings):
         "mixed_paper": (5.0, 30.0),
         "other": (5.0, 500.0),
     }
+
+    def _material_key(self, material: object) -> str:
+        """Normalize a material to its canonical ``MaterialType`` value."""
+        value = getattr(material, "value", material)
+        return str(value).strip().lower()
+
+    def verified_seed_market_key(self) -> tuple[str, str]:
+        """Canonical ``market_key`` for the single verified seed market."""
+        from app.schemas.market import market_key
+
+        return market_key(self.SEED_MARKET_COUNTRY, self.SEED_MARKET_CURRENCY)
+
+    def seed_price_for(
+        self,
+        material: object,
+        country: str | None,
+        currency: str | None,
+    ) -> float | None:
+        """Verified seed for ``(material, market)``, else None.
+
+        Uses the single canonical ``market_key(country, currency)`` identity
+        -- the same helper as reports, the estimator, the anomaly detector,
+        and picker context. Only the verified Pakistan/PKR market returns a
+        value. Every other explicit market (India/INR, USA/USD, France/EUR,
+        mismatched India/PKR, ...) returns None so callers emit
+        ``unavailable`` instead of reusing PKR numbers, converting currency,
+        or fabricating prices. No exchange rates, no guessing.
+        """
+        from app.schemas.market import market_key
+
+        mat = self._material_key(material)
+        if market_key(country, currency) != self.verified_seed_market_key():
+            return None
+        return self.SEED_PRICES.get(mat)
+
+    def seed_info_for(
+        self,
+        material: object,
+        country: str | None,
+        currency: str | None,
+    ) -> dict | None:
+        """Seed metadata for ``(material, market)``: price/currency/source.
+
+        Minimal provenance without a seed-management system -- just the
+        material, its market, the verified price, and the source label.
+        Returns None for markets without a verified seed.
+        """
+        price = self.seed_price_for(material, country, currency)
+        if price is None:
+            return None
+        return {
+            "material": self._material_key(material),
+            "country": self.SEED_MARKET_COUNTRY,
+            "currency": self.SEED_MARKET_CURRENCY,
+            "price_per_kg": price,
+            "source": self.SEED_SOURCE,
+        }
+
+    def price_band_for(
+        self,
+        material: object,
+        country: str | None,
+        currency: str | None,
+    ) -> tuple[float, float] | None:
+        """Sanity band for ``(material, market)``, else None.
+
+        Only the verified Pakistan/PKR market has bands. All other explicit
+        markets return None so validators skip the check instead of judging
+        e.g. USD prices against PKR-denominated ranges. Legacy unknown
+        markets (no currency/country) are handled by the callers'
+        compatibility path, not here -- this helper is strict market-exact.
+        """
+        from app.schemas.market import market_key
+
+        mat = self._material_key(material)
+        if market_key(country, currency) != self.verified_seed_market_key():
+            return None
+        band = self.PRICE_PER_KG_BANDS.get(mat)
+        return tuple(band) if band is not None else None
 
 
 @lru_cache()
