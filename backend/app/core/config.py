@@ -113,6 +113,13 @@ class Settings(BaseSettings):
     MIN_LOCAL_REPORTS: int = 5
     MIN_CITY_REPORTS: int = 10
     MIN_REPORTS_FOR_BASELINE: int = 3
+    # Step 7: current-market history window (days). Only reports with
+    # ``timestamp >= now - REPORT_FRESHNESS_DAYS`` contribute to a current
+    # market estimate or anomaly comparison population. Older reports are
+    # stale: they are never deleted, but they no longer influence current
+    # medians. Verified per-market seeds are NOT expired by this window --
+    # when no fresh reports exist the estimator falls back to the seed.
+    REPORT_FRESHNESS_DAYS: int = 30
     LOW_RATIO: float = 0.5
     HIGH_RATIO: float = 2.0
     MIN_REPORTS_TO_TRAIN_ML: int = 50

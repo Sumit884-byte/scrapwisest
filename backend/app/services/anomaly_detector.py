@@ -38,6 +38,7 @@ import logging
 import pickle
 import statistics
 from collections import defaultdict
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -53,6 +54,7 @@ from app.services.location_resolver import (
     same_city,
     same_neighborhood,
 )
+from app.services.report_freshness import filter_fresh_reports
 
 logger = logging.getLogger(__name__)
 
@@ -102,12 +104,23 @@ def in_same_neighborhood_scope(first: PriceReport, second: PriceReport) -> bool:
     )
 
 
-def _market_pool(report: PriceReport, candidates: List[PriceReport]) -> List[PriceReport]:
-    """Same material + same market (country + currency), any location."""
+def _market_pool(
+    report: PriceReport,
+    candidates: List[PriceReport],
+    now: Optional[datetime] = None,
+    freshness_days: Optional[int] = None,
+) -> List[PriceReport]:
+    """Same material + same market (country + currency), fresh only, any location.
+
+    Step 7: freshness is a population-selection rule -- only reports with
+    ``timestamp >= now - freshness_days`` enter the pool. Location tiers
+    below therefore never see stale data.
+    """
     wanted = _material_value(report)
+    fresh = filter_fresh_reports(candidates, now=now, freshness_days=freshness_days)
     return [
         r
-        for r in candidates
+        for r in fresh
         if _material_value(r) == wanted and in_same_market(report, r)
     ]
 
@@ -115,22 +128,26 @@ def _market_pool(report: PriceReport, candidates: List[PriceReport]) -> List[Pri
 def comparable_reports(
     report: PriceReport,
     candidates: List[PriceReport],
+    now: Optional[datetime] = None,
+    freshness_days: Optional[int] = None,
 ) -> List[PriceReport]:
-    """Historical population for ``report``: tightest scope with real data.
+    """Historical population for ``report``: tightest scope with FRESH data.
 
-    Fallback chain (all within the SAME material + SAME market):
+    Fallback chain (all within the SAME material + SAME market + fresh):
 
     1. neighborhood scope (same neighborhood + city + country),
     2. city scope (same city + country),
     3. market scope (whole country + currency market).
 
-    Each tier uses only real reports -- nothing is fabricated. Callers still
-    apply ``MIN_REPORTS_FOR_BASELINE`` to the result, so sparse scopes fall
-    through to the existing safe "not enough history -- accepted" behavior
-    instead of inventing a baseline. Never crosses an incompatible market
-    and never claims a local baseline across cities.
+    Each tier uses only real fresh reports -- nothing is fabricated and
+    stale reports never anchor a tier. A neighborhood with only stale
+    reports falls through to the fresher city/market baseline. Callers
+    still apply ``MIN_REPORTS_FOR_BASELINE`` to the result, so sparse
+    scopes fall through to the existing safe "not enough history --
+    accepted" behavior instead of inventing a baseline. Never crosses an
+    incompatible market and never claims a local baseline across cities.
     """
-    market_reports = _market_pool(report, candidates)
+    market_reports = _market_pool(report, candidates, now=now, freshness_days=freshness_days)
 
     # Neighborhood tier only applies when this report has a neighborhood
     # identity; a city-only report skips straight to city scope so it still
@@ -154,26 +171,38 @@ def comparable_reports(
 def comparable_prices(
     report: PriceReport,
     candidates: List[PriceReport],
+    now: Optional[datetime] = None,
+    freshness_days: Optional[int] = None,
 ) -> List[float]:
-    """Price/kg series for the anomaly population of ``report``."""
-    return [r.price_per_kg for r in comparable_reports(report, candidates)]
+    """Price/kg series for the anomaly population of ``report`` (fresh only)."""
+    return [r.price_per_kg for r in comparable_reports(report, candidates, now=now, freshness_days=freshness_days)]
 
 
-def market_median_for(report: PriceReport, candidates: List[PriceReport]) -> float:
-    """Median price/kg for the report's material + market (any location).
+def market_median_for(
+    report: PriceReport,
+    candidates: List[PriceReport],
+    now: Optional[datetime] = None,
+    freshness_days: Optional[int] = None,
+) -> float:
+    """Median price/kg for the report's material + market (fresh, any location).
 
     Used as the ML-tier normalization baseline. Returns 0.0 when the market
-    has no history so callers keep their existing safe behavior.
+    has no fresh history so callers keep their existing safe behavior.
     """
-    pool = _market_pool(report, candidates)
+    pool = _market_pool(report, candidates, now=now, freshness_days=freshness_days)
     if not pool:
         return 0.0
     return statistics.median([r.price_per_kg for r in pool])
 
 
-def population_scope(report: PriceReport, candidates: List[PriceReport]) -> str:
+def population_scope(
+    report: PriceReport,
+    candidates: List[PriceReport],
+    now: Optional[datetime] = None,
+    freshness_days: Optional[int] = None,
+) -> str:
     """Which fallback tier ``comparable_reports`` selected (for logs/prompts)."""
-    market_reports = _market_pool(report, candidates)
+    market_reports = _market_pool(report, candidates, now=now, freshness_days=freshness_days)
     if not market_reports:
         return "empty"
     neighborhood_reports = [r for r in market_reports if in_same_neighborhood_scope(report, r)]
@@ -358,12 +387,21 @@ class AnomalyDetectorService:
         logger.info("ML check result: %s", verdict)
         return verdict
 
-    def retrain(self) -> bool:
+    def retrain(
+        self,
+        now: Optional[datetime] = None,
+        freshness_days: Optional[int] = None,
+    ) -> bool:
         # Market-scoped medians: each report's price_ratio is normalized
         # against its own (material, market) median, so the single Isolation
         # Forest never learns a mixed-market distribution (Option B -- filter
         # populations, not categorical encodings and not N separate models).
-        trusted = self.repo.trusted_reports()
+        # Step 7: training uses fresh reports only so stale history cannot
+        # contaminate the learned distribution. Features stay
+        # [price_ratio, log1p(quantity)] -- no timestamp feature.
+        trusted = filter_fresh_reports(
+            self.repo.trusted_reports(), now=now, freshness_days=freshness_days
+        )
         prices_by_market: Dict = defaultdict(list)
         for r in trusted:
             prices_by_market[(_material_value(r), market_key(r.country, r.currency))].append(
@@ -389,5 +427,8 @@ class AnomalyDetectorService:
 
 anomaly_detector_service = AnomalyDetectorService()
 
-def retrain() -> bool:
-    return anomaly_detector_service.retrain()
+def retrain(
+    now: Optional[datetime] = None,
+    freshness_days: Optional[int] = None,
+) -> bool:
+    return anomaly_detector_service.retrain(now=now, freshness_days=freshness_days)

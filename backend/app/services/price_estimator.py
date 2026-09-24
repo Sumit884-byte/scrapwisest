@@ -25,10 +25,12 @@ from __future__ import annotations
 
 import logging
 import statistics
+from datetime import datetime
 from typing import List, Optional, Union
 
 from app.core.config import settings
 from app.repositories.report_repository import ReportRepository, report_repo
+from app.services.report_freshness import filter_fresh_reports
 from app.schemas.market import UNKNOWN_CURRENCY, market_key
 from app.schemas.price import PriceEstimate
 from app.schemas.report import MaterialType, PriceReport
@@ -221,17 +223,29 @@ class PriceEstimatorService:
         country: Optional[str] = None,
         city: Optional[str] = None,
         neighborhood: Optional[str] = None,
+        now: Optional[datetime] = None,
+        freshness_days: Optional[int] = None,
     ) -> PriceEstimate:
         """
         Market- and location-scoped scrap price estimate.
 
-        Pools only reports for the same material in the same market (same
-        currency, and same country when the request names one), then falls
-        back neighborhood -> city -> country/market -> market-specific seed.
-        Use the requested market's local currency; never convert currencies.
+        Pools only FRESH reports for the same material in the same market
+        (same currency, and same country when the request names one), then
+        falls back neighborhood -> city -> country/market ->
+        market-specific seed. Stale reports (older than the freshness
+        window) never contribute to a current estimate; when no fresh
+        reports exist the market-specific seed (or ``unavailable``) applies.
+        Seeds themselves never expire. Use the requested market's local
+        currency; never convert currencies.
         """
         if reports is None:
             reports = self.repo.trusted_reports()
+
+        # Step 7: recency-aware population. Filter to fresh reports FIRST so
+        # a stale neighborhood pool cannot block a fresher city fallback --
+        # location tiers below only ever see current data. Counts reported
+        # in the response therefore reflect usable (fresh) reports only.
+        reports = filter_fresh_reports(reports, now=now, freshness_days=freshness_days)
 
         material_val = _material_value(material)
         request_currency = normalize_currency(currency)
@@ -493,6 +507,8 @@ class PriceEstimatorService:
         country: Optional[str] = None,
         city: Optional[str] = None,
         neighborhood: Optional[str] = None,
+        now: Optional[datetime] = None,
+        freshness_days: Optional[int] = None,
     ) -> Union[PriceEstimate, dict]:
         """Estimate scrap price per kg for a material in the requested market.
 
@@ -506,7 +522,9 @@ class PriceEstimatorService:
             logger.warning("Service 'estimate_price' failed: unknown material '%s'", material_str)
             return {"error": f"unknown material '{material_str}'. Known: {[m.value for m in MaterialType]}"}
 
-        return self.estimate(material, location, self.repo.trusted_reports(), currency, country, city, neighborhood)
+        return self.estimate(
+            material, location, self.repo.trusted_reports(), currency, country, city, neighborhood, now, freshness_days
+        )
 
 
 price_estimator_service = PriceEstimatorService()
@@ -520,8 +538,12 @@ def estimate(
     country: Optional[str] = None,
     city: Optional[str] = None,
     neighborhood: Optional[str] = None,
+    now: Optional[datetime] = None,
+    freshness_days: Optional[int] = None,
 ) -> PriceEstimate:
-    return price_estimator_service.estimate(material, location, reports, currency, country, city, neighborhood)
+    return price_estimator_service.estimate(
+        material, location, reports, currency, country, city, neighborhood, now, freshness_days
+    )
 
 
 def estimate_price(
@@ -531,5 +553,9 @@ def estimate_price(
     country: Optional[str] = None,
     city: Optional[str] = None,
     neighborhood: Optional[str] = None,
+    now: Optional[datetime] = None,
+    freshness_days: Optional[int] = None,
 ) -> Union[PriceEstimate, dict]:
-    return price_estimator_service.estimate_price(material_str, location, currency, country, city, neighborhood)
+    return price_estimator_service.estimate_price(
+        material_str, location, currency, country, city, neighborhood, now, freshness_days
+    )
