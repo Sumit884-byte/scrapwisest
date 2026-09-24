@@ -3,11 +3,16 @@ import type { ChatMessage, PriceData } from '../lib/types'
 import { speakReply, cancelSpeech } from '../lib/speech'
 import { readSettings } from '../lib/settings'
 import {
+  compareSalePerKg,
   estimateSampleCount,
+  evidenceSalesText,
   formatMoney,
   formatPerKg,
+  isComparableCurrency,
+  pendingSaleText,
   reportPlaceLabel,
   tierLabel,
+  trustedSaleText,
 } from '../lib/market'
 import { Volume2, Square, RotateCcw, ExternalLink, AlertTriangle, CheckCircle2, TrendingUp, MapPin, FileText, BarChart3 } from 'lucide-react'
 
@@ -85,9 +90,19 @@ export function MessageBubble({ message, onRetry, onFollowUp }: Props) {
     <div className="flex justify-start message-enter" dir={rtl ? 'rtl' : 'ltr'}>
       <div className="max-w-[85%] rounded-[18px] rounded-tl-[6px] border border-[var(--color-card-border)] bg-[var(--color-surface)] px-4 py-3 text-[var(--color-text)] shadow-[var(--shadow-sm)]">
         <p className="whitespace-pre-wrap break-words text-[15px] leading-[1.6]">{message.text}</p>
-        {message.priceData && <PriceCard data={message.priceData} />}
-        {message.reportData && (
-          <ReportReviewCard data={message.reportData} onFollowUp={onFollowUp} />
+        {message.reportData && message.priceData ? (
+          <SaleVerdictCard
+            report={message.reportData}
+            price={message.priceData}
+            onFollowUp={onFollowUp}
+          />
+        ) : (
+          <>
+            {message.priceData && <PriceCard data={message.priceData} />}
+            {message.reportData && (
+              <ReportReviewCard data={message.reportData} onFollowUp={onFollowUp} />
+            )}
+          </>
         )}
         <div className="mt-2.5 flex items-center justify-between gap-4 border-t border-[var(--color-card-border)] pt-2.5">
           <p className="text-[11px] text-[var(--color-text-muted)]">{time}</p>
@@ -360,6 +375,169 @@ function ReportReviewCard({
           <p className="mt-3 flex items-start gap-1.5 text-[12px] leading-snug text-amber-800">
             <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
             {data.confirmation_reason ?? data.anomaly_reason ?? 'This sale needs a quick review.'}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => onFollowUp('The sale details are correct. Please accept this report.')}
+              className="flex items-center gap-1.5 rounded-xl bg-[var(--color-accent)] px-3.5 py-2 text-[12px] font-semibold text-white transition hover:bg-[var(--color-accent-dark)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              Details are correct
+            </button>
+            <button
+              type="button"
+              onClick={() => onFollowUp('I need to correct the weight or price in my sale report.')}
+              className="flex items-center gap-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 py-2 text-[12px] font-semibold text-[var(--color-text)] transition hover:bg-[var(--color-surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
+            >
+              Correct details
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function SaleVerdictCard({
+  report,
+  price,
+  onFollowUp,
+}: {
+  report: NonNullable<ChatMessage['reportData']>
+  price: NonNullable<ChatMessage['priceData']>
+  onFollowUp: (text: string) => void
+}) {
+  const language = readSettings().language
+  const hindi = language === 'hi'
+  const verdict = compareSalePerKg(report, price)
+  const needsReview = report.needs_confirmation || report.is_anomalous
+  const label = materialLabel(report.material_type, language)
+  const totalText = formatMoney(report.total_price, report.currency)
+  const placeText = reportPlaceLabel(report)
+  const paidText = formatPerKg(report.price_per_kg, report.currency)
+  const typicalText =
+    verdict.typicalPerKg !== null ? formatPerKg(verdict.typicalPerKg, price.currency) : '—'
+  const evidenceText = evidenceSalesText(price, language)
+  const currencyMismatch =
+    verdict.status === 'not-comparable' &&
+    !isComparableCurrency(report.currency, price.currency)
+
+  const directionWord =
+    verdict.direction === 'less'
+      ? hindi
+        ? 'कम'
+        : 'less'
+      : verdict.direction === 'more'
+        ? hindi
+          ? 'ज़्यादा'
+          : 'more'
+        : null
+  const diffText =
+    verdict.diffPerKg !== null && verdict.direction !== null && verdict.direction !== 'same'
+      ? `~${formatPerKg(Math.abs(verdict.diffPerKg), verdict.currency)} ${directionWord}`
+      : hindi
+        ? 'आम भाव के लगभग बराबर'
+        : 'About the same as typical'
+  const hasComparison = verdict.status === 'ok' || verdict.status === 'seed'
+
+  return (
+    <div
+      className={`mt-3.5 rounded-[18px] border p-4 card-enter ${needsReview ? 'border-amber-200 bg-amber-50/80' : 'border-[var(--color-card-border)] bg-[var(--color-bg-chat)]'}`}
+    >
+      <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--color-text-muted)]">
+        <TrendingUp className="h-3.5 w-3.5 text-[var(--color-accent)]" />
+        {hindi ? 'बिक्री नतीजा' : 'Sale verdict'}
+      </p>
+      <p className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-[var(--color-accent-soft)] px-2.5 py-1 text-[12px] font-semibold text-[var(--color-accent-dark)]">
+        {label}
+      </p>
+
+      <div className="mt-3 grid grid-cols-2 gap-2.5">
+        <div className="rounded-xl bg-[var(--color-surface)] p-3 border border-[var(--color-card-border)]">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+            {hindi ? 'आपको मिला' : 'You got'}
+          </p>
+          <p className="mt-1 text-[18px] font-bold leading-tight text-[var(--color-text)]">{paidText}</p>
+        </div>
+        <div className="rounded-xl bg-[var(--color-surface)] p-3 border border-[var(--color-card-border)]">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+            {hindi ? 'यहाँ का आम भाव' : 'Typical here'}
+          </p>
+          <p className="mt-1 text-[18px] font-bold leading-tight text-[var(--color-accent-dark)]">
+            {hasComparison ? typicalText : '—'}
+          </p>
+        </div>
+      </div>
+
+      {hasComparison ? (
+        <div className="mt-2.5 rounded-xl bg-[var(--color-accent-soft)] px-3 py-2.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-accent-dark)]">
+            {hindi ? 'अंतर' : 'Difference'}
+          </p>
+          <p className="mt-0.5 text-[15px] font-bold text-[var(--color-accent-dark)]">{diffText}</p>
+        </div>
+      ) : (
+        <div className="mt-2.5 rounded-xl bg-[var(--color-surface)] border border-[var(--color-card-border)] px-3 py-2.5">
+          <p className="text-[13px] font-semibold text-[var(--color-text)]">
+            {hindi ? 'अभी आस-पास का पर्याप्त डेटा नहीं है' : 'Not enough local data yet'}
+          </p>
+          <p className="mt-0.5 text-[12px] leading-snug text-[var(--color-text-muted)]">
+            {currencyMismatch
+              ? hindi
+                ? 'स्थानीय अनुमान अलग मुद्रा में है, इसलिए सीधी तुलना नहीं कर सकते।'
+                : "The local estimate uses a different currency, so we can't compare directly."
+              : hindi
+                ? 'इस बिक्री के लिए अभी कोई तुलनीय स्थानीय भाव नहीं मिला, इसलिए तुलना नहीं दिखा रहे।'
+                : "We couldn't find a comparable local rate for this sale, so there's no fair-price comparison yet."}
+          </p>
+        </div>
+      )}
+
+      {verdict.status === 'seed' && (
+        <p className="mt-2.5 text-[12px] leading-snug text-[var(--color-text-muted)]">
+          {hindi
+            ? 'शुरुआती अनुमान — अभी स्थानीय बिक्री से नहीं है। पक्का करने से पहले 1–2 खरीदारों से पूछ लें।'
+            : 'Early starting estimate — not from local sales yet. Check with 1–2 buyers before deciding.'}
+        </p>
+      )}
+
+      {!needsReview && (
+        <div className="mt-2.5 space-y-1">
+          <p className="flex items-center gap-1.5 text-[11px] font-medium text-[var(--color-text)]">
+            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-[var(--color-accent)]" />
+            {trustedSaleText(language)}
+          </p>
+          {evidenceText && (
+            <p className="text-[11px] text-[var(--color-text-muted)]">{evidenceText}</p>
+          )}
+        </div>
+      )}
+
+      <div className="mt-3 grid grid-cols-2 gap-2.5">
+        <div className="rounded-lg bg-[var(--color-surface)] p-2.5 border border-[var(--color-card-border)]">
+          <p className="text-[10px] font-medium text-[var(--color-text-muted)]">Material</p>
+          <p className="mt-0.5 text-[14px] font-semibold text-[var(--color-text)]">{label}</p>
+        </div>
+        <div className="rounded-lg bg-[var(--color-surface)] p-2.5 border border-[var(--color-card-border)]">
+          <p className="text-[10px] font-medium text-[var(--color-text-muted)]">Quantity</p>
+          <p className="mt-0.5 text-[14px] font-semibold text-[var(--color-text)]">{report.quantity_kg} kg</p>
+        </div>
+        <div className="rounded-lg bg-[var(--color-surface)] p-2.5 border border-[var(--color-card-border)]">
+          <p className="text-[10px] font-medium text-[var(--color-text-muted)]">Total paid</p>
+          <p className="mt-0.5 text-[14px] font-semibold text-[var(--color-text)]">{totalText}</p>
+        </div>
+        <div className="rounded-lg bg-[var(--color-surface)] p-2.5 border border-[var(--color-card-border)]">
+          <p className="text-[10px] font-medium text-[var(--color-text-muted)]">Location</p>
+          <p className="mt-0.5 text-[14px] font-semibold text-[var(--color-text)]">{placeText}</p>
+        </div>
+      </div>
+
+      {needsReview && (
+        <>
+          <p className="mt-3 flex items-start gap-1.5 text-[12px] leading-snug text-amber-800">
+            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+            {pendingSaleText(language)}
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <button

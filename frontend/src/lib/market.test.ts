@@ -5,13 +5,20 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
+  compareSalePerKg,
   estimateSampleCount,
+  evidenceSalesText,
   formatMoney,
   formatPerKg,
   isKnownCurrency,
+  isSalePendingReview,
+  isSaleTrusted,
+  pendingSaleText,
   reportPlace,
   reportPlaceLabel,
   tierLabel,
+  trustedSaleText,
+  verdictEvidenceCount,
 } from './market'
 import type { PriceData, ReportData } from './types'
 
@@ -188,6 +195,192 @@ describe('missing location fabricates nothing', () => {
 
   it('falls back to a meaningful legacy location string', () => {
     expect(reportPlace({ location: 'Samejabad' })).toBe('Samejabad')
+  })
+})
+
+describe('plain-language trust + evidence for the Sale Verdict card', () => {
+  const BANNED = [
+    'Confidence',
+    'confidence',
+    'tier_used',
+    'PriceEvidence',
+    'Isolation Forest',
+    'freshness_days',
+    'tier = seed',
+    'tier=seed',
+  ]
+
+  function price(overrides: Partial<PriceData>): PriceData {
+    return {
+      material_type: 'plastic_pet',
+      location: 'Income Colony',
+      estimated_price_per_kg: 180,
+      currency: 'PKR',
+      confidence: 0.8,
+      tier_used: 'local',
+      local_report_count: 4,
+      city_report_count: 6,
+      country_report_count: 10,
+      evidence: {
+        source: 'reports',
+        scope: 'neighborhood',
+        report_count: 4,
+        currency: 'PKR',
+        country: 'Pakistan',
+        freshness_days: 30,
+        seed_source: null,
+      },
+      ...overrides,
+    }
+  }
+
+  it('accepted report + 4 evidence reports shows trust + plural evidence', () => {
+    const sale = report({ needs_confirmation: false, is_anomalous: false })
+    expect(isSaleTrusted(sale)).toBe(true)
+    expect(isSalePendingReview(sale)).toBe(false)
+    expect(trustedSaleText('en')).toBe('Saved and counted in local rates.')
+    expect(evidenceSalesText(price({}), 'en')).toBe('Based on 4 recent local sales')
+  })
+
+  it('accepted report + 1 evidence report uses singular wording', () => {
+    const data = price({
+      local_report_count: 1,
+      city_report_count: 1,
+      evidence: {
+        source: 'reports',
+        scope: 'neighborhood',
+        report_count: 1,
+        currency: 'PKR',
+        country: 'Pakistan',
+        freshness_days: 30,
+        seed_source: null,
+      },
+    })
+    expect(verdictEvidenceCount(data)).toBe(1)
+    expect(evidenceSalesText(data, 'en')).toBe('Based on 1 recent local sale')
+  })
+
+  it('pending/unusual report shows plain language and no technical terms', () => {
+    const pending = report({ needs_confirmation: true, is_anomalous: false })
+    const flagged = report({ needs_confirmation: false, is_anomalous: true })
+    for (const sale of [pending, flagged]) {
+      expect(isSalePendingReview(sale)).toBe(true)
+      expect(isSaleTrusted(sale)).toBe(false)
+    }
+    const text = pendingSaleText('en')
+    expect(text).toMatch(/isn't counted in local prices yet/i)
+    expect(text).toMatch(/unusual/i)
+    for (const term of BANNED) {
+      expect(trustedSaleText('en')).not.toContain(term)
+      expect(pendingSaleText('en')).not.toContain(term)
+      expect(evidenceSalesText(price({}), 'en') ?? '').not.toContain(term)
+    }
+    // The card must not surface raw backend reasons; helpers never echo them.
+    const rawReason =
+      'deterministic anomaly check: price/kg (999) outside expected range for plastic_pet'
+    expect(pendingSaleText('en')).not.toContain('deterministic')
+    expect(pendingSaleText('en')).not.toContain(rawReason.slice(0, 20))
+  })
+
+  it('seed estimate keeps the existing early-estimate behavior', () => {
+    const verdict = compareSalePerKg(
+      { material_type: 'plastic_pet', price_per_kg: 150, currency: 'PKR' },
+      {
+        material_type: 'plastic_pet',
+        estimated_price_per_kg: 180,
+        currency: 'PKR',
+        tier_used: 'seed',
+      },
+    )
+    expect(verdict.status).toBe('seed')
+    expect(verdict.typicalPerKg).toBe(180)
+    // Seed never claims local-sales evidence.
+    expect(
+      verdictEvidenceCount(price({ tier_used: 'seed', evidence: { source: 'seed', scope: 'seed', report_count: 0, currency: 'PKR', country: 'Pakistan', freshness_days: 30, seed_source: 'verified' } })),
+    ).toBeNull()
+    expect(evidenceSalesText(price({ tier_used: 'seed' }), 'en')).toBeNull()
+  })
+
+  it('unavailable estimate keeps the existing no-comparison behavior', () => {
+    const verdict = compareSalePerKg(
+      { material_type: 'plastic_pet', price_per_kg: 150, currency: 'PKR' },
+      {
+        material_type: 'plastic_pet',
+        estimated_price_per_kg: 0,
+        currency: 'PKR',
+        tier_used: 'unavailable',
+      },
+    )
+    expect(verdict.status).toBe('unavailable')
+    expect(verdict.typicalPerKg).toBeNull()
+    expect(verdict.diffPerKg).toBeNull()
+  })
+
+  it('no evidence count does not invent a report count', () => {
+    expect(
+      verdictEvidenceCount(
+        price({
+          tier_used: 'local',
+          local_report_count: 0,
+          city_report_count: 0,
+          country_report_count: 0,
+          evidence: {
+            source: 'reports',
+            scope: 'neighborhood',
+            report_count: 0,
+            currency: 'PKR',
+            country: 'Pakistan',
+            freshness_days: 30,
+            seed_source: null,
+          },
+        }),
+      ),
+    ).toBeNull()
+    expect(
+      evidenceSalesText(
+        price({
+          tier_used: 'local',
+          local_report_count: 0,
+          city_report_count: 0,
+          country_report_count: 0,
+          evidence: {
+            source: 'reports',
+            scope: 'neighborhood',
+            report_count: 0,
+            currency: 'PKR',
+            country: 'Pakistan',
+            freshness_days: 30,
+            seed_source: null,
+          },
+        }),
+        'en',
+      ),
+    ).toBeNull()
+  })
+
+  it('existing Sale Verdict comparison behavior is unchanged', () => {
+    const verdict = compareSalePerKg(
+      { material_type: 'plastic_pet', price_per_kg: 150, currency: 'PKR' },
+      {
+        material_type: 'plastic_pet',
+        estimated_price_per_kg: 180,
+        currency: 'PKR',
+        tier_used: 'local',
+      },
+    )
+    expect(verdict.status).toBe('ok')
+    expect(verdict.diffPerKg).toBe(-30)
+    expect(verdict.direction).toBe('less')
+    const mismatch = compareSalePerKg(
+      { material_type: 'plastic_pet', price_per_kg: 150, currency: 'PKR' },
+      {
+        material_type: 'plastic_pet',
+        estimated_price_per_kg: 180,
+        currency: 'INR',
+        tier_used: 'local',
+      },
+    )
+    expect(mismatch.status).toBe('not-comparable')
   })
 })
 

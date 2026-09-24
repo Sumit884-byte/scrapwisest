@@ -160,6 +160,232 @@ export function reportPlaceLabel(report: ReportPlace): string {
   return reportPlace(report) ?? 'Unknown'
 }
 
+/** True for the backend "no estimate" tier (never a comparable number). */
+export function isUnavailableTier(tier: string | null | undefined): boolean {
+  return normalizeTier(tier) === 'unavailable'
+}
+
+/** True for the verified seed fallback tier (early estimate, not local sales). */
+export function isSeedTier(tier: string | null | undefined): boolean {
+  return normalizeTier(tier) === 'seed'
+}
+
+/**
+ * Upper-cased currency code, or null when missing/unknown.
+ * Same rule as displayCurrency, exposed for verdict comparison.
+ */
+export function comparableCurrencyCode(currency: string | null | undefined): string | null {
+  return displayCurrency(currency)
+}
+
+/**
+ * Two per-kg values are only comparable when they share one currency.
+ * Both-unknown (legacy bare amounts) counts as comparable; a known code
+ * against unknown/missing, or two different codes, never compares.
+ */
+export function isComparableCurrency(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  const left = displayCurrency(a)
+  const right = displayCurrency(b)
+  if (left === null && right === null) return true
+  if (left === null || right === null) return false
+  return left === right
+}
+
+export type SaleVerdictStatus = 'ok' | 'seed' | 'unavailable' | 'not-comparable'
+
+export type SaleVerdictDirection = 'less' | 'more' | 'same'
+
+export interface SaleComparison {
+  status: SaleVerdictStatus
+  /** Currency code to display the difference with (null = bare amount). */
+  currency: string | null
+  paidPerKg: number
+  typicalPerKg: number | null
+  /** paidPerKg - typicalPerKg, rounded to 2 decimals. Null when not comparable. */
+  diffPerKg: number | null
+  direction: SaleVerdictDirection | null
+}
+
+export interface SaleVerdictInputs {
+  material_type?: string | null
+  price_per_kg?: number | null
+  currency?: string | null
+}
+
+export interface SaleEstimateInputs {
+  material_type?: string | null
+  estimated_price_per_kg?: number | null
+  currency?: string | null
+  tier_used?: string | null
+}
+
+/**
+ * Deterministic paid-vs-typical comparison for the Sale Verdict card.
+ *
+ * Rules (no backend change, no conversion, no invented numbers):
+ * - per-kg only, never totals
+ * - unavailable tier -> 'unavailable'
+ * - non-finite values or mismatched materials -> 'not-comparable'
+ *   (callers render "Not enough local data yet")
+ * - different currencies (or known-vs-unknown) -> 'not-comparable'
+ * - seed tier -> 'seed' (numbers still shown, caller must label as early)
+ * - otherwise -> 'ok'
+ */
+export function compareSalePerKg(
+  report: SaleVerdictInputs,
+  estimate: SaleEstimateInputs,
+): SaleComparison {
+  const paid = report.price_per_kg ?? NaN
+  const typical = estimate.estimated_price_per_kg ?? NaN
+  const currency = displayCurrency(report.currency) ?? displayCurrency(estimate.currency)
+
+  if (isUnavailableTier(estimate.tier_used)) {
+    return {
+      status: 'unavailable',
+      currency,
+      paidPerKg: paid,
+      typicalPerKg: null,
+      diffPerKg: null,
+      direction: null,
+    }
+  }
+
+  if (
+    typeof paid !== 'number' ||
+    typeof typical !== 'number' ||
+    Number.isNaN(paid) ||
+    Number.isNaN(typical) ||
+    !Number.isFinite(paid) ||
+    !Number.isFinite(typical)
+  ) {
+    return {
+      status: 'not-comparable',
+      currency,
+      paidPerKg: paid,
+      typicalPerKg: null,
+      diffPerKg: null,
+      direction: null,
+    }
+  }
+
+  const reportMaterial = (report.material_type ?? '').trim().toLowerCase()
+  const estimateMaterial = (estimate.material_type ?? '').trim().toLowerCase()
+  if (reportMaterial && estimateMaterial && reportMaterial !== estimateMaterial) {
+    return {
+      status: 'not-comparable',
+      currency,
+      paidPerKg: paid,
+      typicalPerKg: null,
+      diffPerKg: null,
+      direction: null,
+    }
+  }
+
+  if (!isComparableCurrency(report.currency, estimate.currency)) {
+    return {
+      status: 'not-comparable',
+      currency,
+      paidPerKg: paid,
+      typicalPerKg: null,
+      diffPerKg: null,
+      direction: null,
+    }
+  }
+
+  const diff = Math.round((paid - typical) * 100) / 100
+  const direction: SaleVerdictDirection = diff === 0 ? 'same' : diff < 0 ? 'less' : 'more'
+  return {
+    status: isSeedTier(estimate.tier_used) ? 'seed' : 'ok',
+    currency,
+    paidPerKg: paid,
+    typicalPerKg: typical,
+    diffPerKg: diff,
+    direction,
+  }
+}
+
+export interface SaleTrustInputs {
+  needs_confirmation?: boolean | null
+  is_anomalous?: boolean | null
+}
+
+/** Plain trust state: pending review means not counted yet. No tiers exposed. */
+export function isSalePendingReview(report: SaleTrustInputs | null | undefined): boolean {
+  if (!report) return false
+  return Boolean(report.needs_confirmation) || Boolean(report.is_anomalous)
+}
+
+/** Accepted sales are trusted and counted toward local prices. */
+export function isSaleTrusted(report: SaleTrustInputs | null | undefined): boolean {
+  return !isSalePendingReview(report)
+}
+
+export interface VerdictEvidenceInputs {
+  tier_used?: string | null
+  local_report_count?: number | null
+  city_report_count?: number | null
+  country_report_count?: number | null
+  evidence?: {
+    source?: string | null
+    report_count?: number | null
+  } | null
+}
+
+/**
+ * Meaningful local-sales count for the verdict's quiet evidence line.
+ * Prefers the backend `PriceEvidence.report_count` when present; falls back
+ * to the tier-scoped counts for older payloads without evidence. Returns
+ * null when there is no meaningful count so callers never invent one.
+ * Seed and unavailable tiers never produce a count.
+ */
+export function verdictEvidenceCount(
+  price: VerdictEvidenceInputs | null | undefined,
+): number | null {
+  if (!price) return null
+  if (isUnavailableTier(price.tier_used) || isSeedTier(price.tier_used)) return null
+  const ev = price.evidence
+  if (ev && typeof ev.report_count === 'number' && Number.isFinite(ev.report_count)) {
+    const source = (ev.source ?? '').trim().toLowerCase()
+    if (ev.report_count >= 1 && (source === 'reports' || source === '')) {
+      return Math.floor(ev.report_count)
+    }
+    // Evidence explicitly says no reports (e.g. report_count 0) — respect it.
+    if (source === 'reports' || source === 'seed' || source === 'unavailable') return null
+  }
+  const fallback = estimateSampleCount(price)
+  return fallback >= 1 ? fallback : null
+}
+
+/** Quiet trust confirmation for an accepted sale. No tiers, no confidence. */
+export function trustedSaleText(language?: AppLanguageCode | null): string {
+  if (isHindi(language)) return 'सहेजा गया और स्थानीय भाव में गिना गया।'
+  return 'Saved and counted in local rates.'
+}
+
+/** Plain pending explanation. Never exposes backend validation/anomaly reasons. */
+export function pendingSaleText(language?: AppLanguageCode | null): string {
+  if (isHindi(language))
+    return 'यह बिक्री अभी स्थानीय भाव में नहीं गिनी गई क्योंकि विवरण असामान्य लग रहा है।'
+  return "This sale isn't counted in local prices yet because the details look unusual."
+}
+
+/**
+ * Quiet evidence line ("Based on 4 recent local sales").
+ * Returns null when there is no meaningful count — never invents one.
+ */
+export function evidenceSalesText(
+  price: VerdictEvidenceInputs | null | undefined,
+  language?: AppLanguageCode | null,
+): string | null {
+  const count = verdictEvidenceCount(price)
+  if (count === null) return null
+  if (isHindi(language)) return `${count} हाल की स्थानीय बिक्री पर आधारित`
+  return count === 1 ? 'Based on 1 recent local sale' : `Based on ${count} recent local sales`
+}
+
 export interface EstimateCounts {
   tier_used?: string | null
   local_report_count?: number | null
