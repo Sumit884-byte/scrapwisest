@@ -76,14 +76,16 @@ async def create_report(payload: ReportCreate):
 
     reasons: list[str] = validate_market_fields(currency, country, city, neighborhood)
 
-    # The sanity bands are denominated in one market's currency. They only
-    # apply to that market (or to legacy reports that never named a
-    # currency); other explicit currencies skip the band check until
-    # per-market bands exist.
+    # Single source of truth is ``settings.price_band_for`` (verified
+    # Pakistan/PKR). Raw-config fallback preserves legacy PKR/unknown
+    # behavior exactly; other explicit currencies skip the check.
     if currency in ("PKR", UNKNOWN_CURRENCY):
-        min_band, max_band = settings.PRICE_PER_KG_BANDS.get(
+        band = settings.price_band_for(
+            payload.material_type, country, currency
+        ) or settings.PRICE_PER_KG_BANDS.get(
             payload.material_type.value, (5.0, 500.0)
         )
+        min_band, max_band = band
         if not (min_band <= price_per_kg <= max_band):
             reasons.append(
                 f"Price per kg ({price_per_kg:.1f}) outside sanity range "

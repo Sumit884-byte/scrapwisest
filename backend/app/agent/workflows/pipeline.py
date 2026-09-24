@@ -56,9 +56,23 @@ logger = logging.getLogger(__name__)
 
 KNOWN_MATERIALS = [m.value for m in MaterialType]
 
-PRICE_PER_KG_BANDS = {
-    MaterialType(k): v for k, v in settings.PRICE_PER_KG_BANDS.items()
-}
+# Single source of truth is ``settings`` (verified Pakistan/PKR bands).
+# Kept under the legacy name for backwards compatibility; values are
+# resolved via ``settings.price_band_for`` for the verified market with
+# raw-config fallback so behavior is identical.
+def _verified_band(material_key: str) -> tuple[float, float]:
+    band = settings.price_band_for(
+        material_key,
+        settings.SEED_MARKET_COUNTRY,
+        settings.SEED_MARKET_CURRENCY,
+    )
+    if band is not None:
+        return band
+    raw = settings.PRICE_PER_KG_BANDS.get(material_key.strip().lower())
+    return tuple(raw) if raw is not None else (5.0, 500.0)
+
+
+PRICE_PER_KG_BANDS = {MaterialType(k): _verified_band(k) for k in settings.PRICE_PER_KG_BANDS}
 
 
 def _material_label(material) -> str:

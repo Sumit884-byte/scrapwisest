@@ -44,33 +44,15 @@ from app.services.location_resolver import (
 
 logger = logging.getLogger(__name__)
 
-# Step 6: verified seed prices, keyed by (material, market) where market
-# is the canonical (currency, country) pair from ``market_key()`` -- the
-# SAME helper used by reports, the anomaly detector, and picker context.
-# There is exactly one market-key implementation; no "Pakistan/PKR",
-# "pk", or "pakistan_pkr" duplicates exist.
-#
-# Only the Pakistan/PKR market has verified seeds; every other market maps
-# to no entry, which the estimator treats as "no market seed" instead of
-# reusing or inventing numbers. Never convert PKR seeds to INR/USD, never
-# apply exchange rates, never guess international values.
+# Single source of truth: ``app.core.config.settings`` owns SEED_PRICES and
+# PRICE_PER_KG_BANDS for the verified Pakistan/PKR market only.
+# Cleanup: removed duplicated _SEED_BY_MARKET/_BAND_BY_MARKET caches here.
+# Helpers below delegate to ``settings.seed_price_for/price_band_for``
+# (canonical ``market_key`` identity) plus the documented legacy-unknown
+# fallback. No behavior change, no new values, no conversion.
 _VERIFIED_SEED_MARKET: tuple[str, str] = market_key(
     settings.SEED_MARKET_COUNTRY, settings.SEED_MARKET_CURRENCY
 )
-_SEED_BY_MARKET: dict[tuple[str, str, str], float] = {}
-for _mat_value, _seed in settings.SEED_PRICES.items():
-    _mat_norm = _mat_value.strip().lower()
-    _SEED_BY_MARKET[(_mat_norm, _VERIFIED_SEED_MARKET[0], _VERIFIED_SEED_MARKET[1])] = _seed
-
-# Verified price bands, keyed the same way: (material, market). Only the
-# Pakistan/PKR market has verified bands. Other markets have no entry --
-# validators must skip the band check for them instead of judging e.g. a
-# USD price against a PKR-denominated range. Never convert bands.
-_BAND_BY_MARKET: dict[tuple[str, str, str], tuple[float, float]] = {}
-for _band_mat, _band in settings.PRICE_PER_KG_BANDS.items():
-    _BAND_BY_MARKET[
-        (_band_mat.strip().lower(), _VERIFIED_SEED_MARKET[0], _VERIFIED_SEED_MARKET[1])
-    ] = (float(_band[0]), float(_band[1]))
 
 # Backwards-compatible material-only view of the verified Pakistan/PKR
 # seeds. DEPRECATED for market-aware code: it is NOT a global table and
@@ -113,24 +95,17 @@ def _seed_for(
 ) -> Optional[float]:
     """Verified seed for ``(material, market)``, or None when unknown.
 
-    Exact-match lookup only::
-
-        material + requested market -> seed if that market has one, else None.
-
-    Only the Pakistan/PKR market (and the legacy unknown market, for
-    backwards compatibility -- see ``_LEGACY_SEED_MARKET``) has verified
-    seeds. All other markets return None so the estimator never fabricates
-    pricing data and never reuses a PKR seed as an INR/USD seed.
-
-    Never invents values, never converts currencies, never reuses another
-    country's seed as if it belonged to the requested market.
+    Delegates to ``settings.seed_price_for`` (single source of truth).
+    Legacy unknown market ``("unknown", "")`` falls back to the verified
+    Pakistan/PKR seed for backwards compatibility. All other markets
+    return None. Never converts, never fabricates.
     """
-    mat = _material_value(material)
-    cur, ctry = market_key(country, currency)
-    if (cur, ctry) == _LEGACY_SEED_MARKET:
-        verified_cur, verified_ctry = _VERIFIED_SEED_MARKET
-        return _SEED_BY_MARKET.get((mat, verified_cur, verified_ctry))
-    return _SEED_BY_MARKET.get((mat, cur, ctry))
+    direct = settings.seed_price_for(material, country, currency)
+    if direct is not None:
+        return direct
+    if market_key(country, currency) == _LEGACY_SEED_MARKET:
+        return settings.SEED_PRICES.get(_material_value(material))
+    return None
 
 
 def _band_for(
@@ -138,17 +113,17 @@ def _band_for(
 ) -> Optional[tuple[float, float]]:
     """Verified sanity band for ``(material, market)``, or None.
 
-    Same market identity as seeds: only Pakistan/PKR (plus the legacy
-    unknown market for backwards compatibility) has bands. Explicit foreign
-    markets return None so validators skip the check instead of judging a
-    foreign-currency price against a PKR-denominated range. Never convert.
+    Delegates to ``settings.price_band_for`` (single source of truth).
+    Legacy unknown market falls back to the verified Pakistan/PKR band.
+    Explicit foreign markets return None. Never converts.
     """
-    mat = _material_value(material)
-    cur, ctry = market_key(country, currency)
-    if (cur, ctry) == _LEGACY_SEED_MARKET:
-        verified_cur, verified_ctry = _VERIFIED_SEED_MARKET
-        return _BAND_BY_MARKET.get((mat, verified_cur, verified_ctry))
-    return _BAND_BY_MARKET.get((mat, cur, ctry))
+    direct = settings.price_band_for(material, country, currency)
+    if direct is not None:
+        return direct
+    if market_key(country, currency) == _LEGACY_SEED_MARKET:
+        raw = settings.PRICE_PER_KG_BANDS.get(_material_value(material))
+        return tuple(raw) if raw is not None else None
+    return None
 
 
 def seed_info_for(
