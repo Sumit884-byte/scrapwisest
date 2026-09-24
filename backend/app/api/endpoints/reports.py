@@ -20,7 +20,11 @@ from app.services.location_resolver import (
     normalize_place_part,
     validate_market_fields,
 )
-from app.services.anomaly_detector import anomaly_detector_service
+from app.services.anomaly_detector import (
+    anomaly_detector_service,
+    comparable_prices,
+    market_median_for,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -101,26 +105,16 @@ async def create_report(payload: ReportCreate):
         picker_id=payload.picker_id,
     )
 
-    recent = report_repo.find_by_material_and_location(
-        payload.material_type,
-        report.location,
-        trusted_only=True,
-    )
-    recent_prices = [item.price_per_kg for item in recent]
+    # Step 4: anomaly populations are market/location scoped (same material
+    # + same market, tightest location scope with data) -- never pooled
+    # across incompatible markets or across cities for a local baseline.
+    trusted = report_repo.trusted_reports()
+    recent_prices = comparable_prices(report, trusted)
     verdict = anomaly_detector_service.deterministic_check(report, recent_prices)
 
     if not verdict.is_anomalous and anomaly_detector_service.ml_model is not None:
-        material_prices = [
-            item.price_per_kg
-            for item in report_repo.find_by_material_and_location(
-                payload.material_type,
-                trusted_only=True,
-            )
-        ]
         if len(recent_prices) >= settings.MIN_REPORTS_FOR_BASELINE:
-            import statistics
-
-            median = statistics.median(material_prices or recent_prices)
+            median = market_median_for(report, trusted)
             verdict = anomaly_detector_service.ml_check(report, median)
 
     if verdict.is_anomalous:

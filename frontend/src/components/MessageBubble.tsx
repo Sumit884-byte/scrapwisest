@@ -2,6 +2,13 @@ import { useRef, useState } from 'react'
 import type { ChatMessage, PriceData } from '../lib/types'
 import { speakReply, cancelSpeech } from '../lib/speech'
 import { readSettings } from '../lib/settings'
+import {
+  estimateSampleCount,
+  formatMoney,
+  formatPerKg,
+  reportPlaceLabel,
+  tierLabel,
+} from '../lib/market'
 import { Volume2, Square, RotateCcw, ExternalLink, AlertTriangle, CheckCircle2, TrendingUp, MapPin, FileText, BarChart3 } from 'lucide-react'
 
 interface Props {
@@ -131,12 +138,6 @@ function materialLabel(value: string, language: string): string {
   return key.replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
-function tierLabel(tier: string): string {
-  if (tier === 'local' || tier === 'local+city') return 'Neighborhood reports'
-  if (tier === 'city') return 'Wider-area reports'
-  return 'Seed market baseline'
-}
-
 function confidenceLabel(value: number): string {
   if (value >= 0.75) return 'High confidence'
   if (value >= 0.45) return 'Medium confidence'
@@ -205,7 +206,11 @@ function PriceCard({ data }: { data: PriceData }) {
   const low = Math.round(data.min_price_per_kg ?? data.estimated_price_per_kg)
   const high = Math.round(data.max_price_per_kg ?? data.estimated_price_per_kg)
   const current = Math.round(data.estimated_price_per_kg)
-  const sampleCount = data.local_report_count || data.city_report_count
+  const sampleCount = estimateSampleCount(data)
+  const unavailable = (data.tier_used ?? '').trim().toLowerCase() === 'unavailable'
+  const rateText = unavailable
+    ? '—'
+    : formatPerKg(data.estimated_price_per_kg, data.currency)
   const place =
     !data.location || data.location.toLowerCase() === 'unknown'
       ? hindi
@@ -225,9 +230,7 @@ function PriceCard({ data }: { data: PriceData }) {
           </p>
           <div className="mt-1.5 flex items-baseline gap-2">
             <p className="text-[28px] font-bold leading-none tracking-tight text-[var(--color-accent-dark)]">
-              {hindi
-                ? `${data.estimated_price_per_kg} ₹/kg`
-                : `${data.estimated_price_per_kg} PKR/kg`}
+              {rateText}
             </p>
           </div>
           <p className="mt-2 inline-flex items-center gap-1 rounded-full bg-[var(--color-accent-soft)] px-2.5 py-1 text-[12px] font-semibold text-[var(--color-accent-dark)]">
@@ -282,7 +285,7 @@ function PriceCard({ data }: { data: PriceData }) {
         <p className="text-[11px] text-[var(--color-text-muted)]">
           {hindi ? 'स्रोत: ' : 'Source: '}
           <span className="font-medium text-[var(--color-text)]">
-            {hindi ? 'इलाके की रिपोर्ट' : tierLabel(data.tier_used)}
+            {tierLabel(data.tier_used, language)}
           </span>
           {!hindi && data.used_external_context ? ' + Tavily market context' : ''}
         </p>
@@ -316,6 +319,9 @@ function ReportReviewCard({
 }) {
   const label = materialLabel(data.material_type, readSettings().language)
   const needsReview = data.needs_confirmation || data.is_anomalous
+  const totalText = formatMoney(data.total_price, data.currency)
+  const perKgText = formatPerKg(data.price_per_kg, data.currency)
+  const placeText = reportPlaceLabel(data)
 
   return (
     <div className={`mt-3.5 rounded-[18px] border p-4 card-enter ${needsReview ? 'border-amber-200 bg-amber-50/80' : 'border-[var(--color-card-border)] bg-[var(--color-bg-chat)]'}`}>
@@ -338,15 +344,15 @@ function ReportReviewCard({
         </div>
         <div className="rounded-lg bg-[var(--color-surface)] p-2.5 border border-[var(--color-card-border)]">
           <p className="text-[10px] font-medium text-[var(--color-text-muted)]">Total paid</p>
-          <p className="mt-0.5 text-[14px] font-semibold text-[var(--color-text)]">{data.price_paid_pkr} PKR</p>
+          <p className="mt-0.5 text-[14px] font-semibold text-[var(--color-text)]">{totalText}</p>
         </div>
         <div className="rounded-lg bg-[var(--color-surface)] p-2.5 border border-[var(--color-card-border)]">
           <p className="text-[10px] font-medium text-[var(--color-text-muted)]">Per kg</p>
-          <p className="mt-0.5 text-[14px] font-semibold text-[var(--color-text)]">{data.price_paid_pkr_per_kg} PKR/kg</p>
+          <p className="mt-0.5 text-[14px] font-semibold text-[var(--color-text)]">{perKgText}</p>
         </div>
         <div className="col-span-2 rounded-lg bg-[var(--color-surface)] p-2.5 border border-[var(--color-card-border)]">
           <p className="text-[10px] font-medium text-[var(--color-text-muted)]">Location</p>
-          <p className="mt-0.5 text-[14px] font-semibold text-[var(--color-text)]">{data.location}</p>
+          <p className="mt-0.5 text-[14px] font-semibold text-[var(--color-text)]">{placeText}</p>
         </div>
       </div>
       {needsReview && (

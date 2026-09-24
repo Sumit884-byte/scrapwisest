@@ -16,19 +16,28 @@ from app.services.anomaly_detector import train_ml_model
 
 raw = json.loads(Path("synthethic_report.json").read_text(encoding="utf-8"))
 
-# Compute per-material median across all reports (used as normalization baseline)
+# Compute per-(material, market) medians (Step 4: never learn a mixed-market
+# distribution). Legacy rows without country/currency fall back to a
+# material-only median so old synthetic data still trains.
 from collections import defaultdict
-prices_by_material: dict[str, list[float]] = defaultdict(list)
-for r in raw:
-    prices_by_material[r["material_type"]].append(r["price_paid_pkr_per_kg"])
 
-medians = {m: statistics.median(p) for m, p in prices_by_material.items()}
+from app.schemas.market import market_key
+
+prices_by_market: dict[tuple, list[float]] = defaultdict(list)
+for r in raw:
+    price = r.get("price_per_kg", r.get("price_paid_pkr_per_kg"))
+    key = (r["material_type"], market_key(r.get("country"), r.get("currency")))
+    prices_by_market[key].append(price)
+
+medians = {m: statistics.median(p) for m, p in prices_by_market.items()}
 
 reports = [
     {
-        "price_paid_pkr_per_kg": r["price_paid_pkr_per_kg"],
+        "price_per_kg": r.get("price_per_kg", r.get("price_paid_pkr_per_kg")),
         "quantity_kg": r["quantity_kg"],
-        "material_median": medians[r["material_type"]],
+        "material_median": medians[
+            (r["material_type"], market_key(r.get("country"), r.get("currency")))
+        ],
     }
     for r in raw
 ]

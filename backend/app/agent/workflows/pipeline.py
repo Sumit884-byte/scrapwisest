@@ -30,7 +30,13 @@ from app.schemas.report import (
     PriceReport,
     RawExtraction,
 )
-from app.services.anomaly_detector import anomaly_detector_service
+from app.services.anomaly_detector import (
+    anomaly_detector_service,
+    comparable_prices,
+    describe_market,
+    market_median_for,
+    population_scope,
+)
 from app.services.location_resolver import (
     UNKNOWN_CURRENCY,
     is_plausible_currency,
@@ -130,9 +136,16 @@ LLM_JUDGE_PROMPT = """A waste picker submitted a scrap sale report that one \
 or more automated checks flagged as unusual. Decide whether it's likely a \
 legitimate outlier or likely a bad/manipulated report.
 
-Report: {material} -- {quantity} kg sold at {price_per_kg} {currency}/kg in {location}.
-Recent price/kg reports for this material in this area: {recent_prices}
+Report: {material} -- {quantity} kg sold at {price_per_kg} {currency}/kg in {market} (area: {location}; scope: {scope}).
+Recent price/kg reports for this material in this market/scope: {recent_prices}
 What got flagged and why: {flag_reasons}
+
+Compare only against the listed market/scope history above -- e.g. 250 \
+PKR/kg in Multan, Pakistan is a different market from 35 INR/kg in Delhi, \
+India and must never be judged against each other. Do not calculate the \
+baseline yourself; the deterministic/ML layers already established the \
+evidence. Judge only whether the flagged report is a legitimate outlier \
+or likely bad/manipulated.
 
 Legitimate outliers happen -- e.g. heavily contaminated material sells for \
 much less, an unusually large or clean batch is a real bulk sale, or a \
@@ -143,18 +156,17 @@ reason, or fits a pattern with no real-world explanation.
 
 
 def _recent_prices_for(report: PriceReport) -> List[float]:
-    """Trusted price/kg history for this material in this area.
+    """Trusted price/kg history for this report's anomaly population.
 
-    NOTE (Step 1): market scoping (same currency/country/city pooling)
-    is deliberately unchanged here -- a later step will stop pooling
-    across incompatible markets. Field names are generic already.
+    Step 4: same material + same market (``market_key(country, currency)``)
+    with the tightest location scope holding real data
+    (neighborhood -> city -> market). Delegates to the canonical
+    ``comparable_prices()`` in the anomaly service so the pipeline, the
+    REST endpoint, and the detector share exactly one population
+    implementation. Never pools across incompatible markets and never
+    claims a local baseline across cities.
     """
-    return [
-        r.price_per_kg
-        for r in report_repo.trusted_reports()
-        if r.material_type == report.material_type
-        and r.location.strip().lower() == report.location.strip().lower()
-    ]
+    return comparable_prices(report, report_repo.trusted_reports())
 
 
 def _flagged_results(state: PipelineState) -> List[AnomalyVerdict]:
@@ -352,8 +364,9 @@ def deterministic_check_node(state: PipelineState) -> dict:
 
 def ml_check_node(state: PipelineState) -> dict:
     price_report = state["price_report"]
-    recent = _recent_prices_for(price_report)
-    median = statistics.median(recent) if recent else 0.0
+    # Market-scoped median (same material + market, any location) -- never a
+    # mixed-market median.
+    median = market_median_for(price_report, report_repo.trusted_reports())
     result = anomaly_detector_service.ml_check(price_report, median)
     return {"ml_result": result}
 
@@ -371,6 +384,8 @@ def llm_check_node(state: PipelineState) -> dict:
         price_per_kg=price_report.price_per_kg,
         currency=price_report.currency,
         location=price_report.location,
+        market=describe_market(price_report),
+        scope=population_scope(price_report, report_repo.trusted_reports()),
         recent_prices=recent,
         flag_reasons=flag_reasons,
     )
