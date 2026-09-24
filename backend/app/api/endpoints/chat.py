@@ -507,7 +507,15 @@ def _chat_response(
 
 
 def _pending_review_response(text: str, picker_id: str) -> Optional[ChatResponse]:
-    """Handle review-card actions without spending another model call."""
+    """Handle review-card actions without spending another model call.
+
+    Step 8: confirmation is the canonical PENDING -> ACCEPTED transition.
+    The accepted report moves from the ``pending_reports`` holding table to
+    the trusted market dataset (main ``reports`` table as ACCEPTED);
+    PENDING data never influences estimates until this explicit step.
+    """
+    from app.services.report_trust import accept_pending_report
+
     pending = report_repo.get_pending(picker_id)
     if pending is None:
         return None
@@ -535,9 +543,8 @@ def _pending_review_response(text: str, picker_id: str) -> Optional[ChatResponse
     )
 
     if confirmation:
-        pending.needs_confirmation = False
-        pending.confirmation_reason = None
-        report_repo.add(pending)
+        accepted = accept_pending_report(pending)
+        report_repo.add(accepted)
         report_repo.clear_pending(picker_id)
         return ChatResponse(
             reply="Your sale details were confirmed and added to the trusted local price data.",
@@ -556,10 +563,19 @@ def _pending_review_response(text: str, picker_id: str) -> Optional[ChatResponse
 
 
 def _persist_pending_review(response: ChatResponse, picker_id: str) -> ChatResponse:
-    """Keep reports needing review out of the trusted price pool."""
+    """Keep reports needing review out of the trusted price pool.
+
+    Step 8: flagged reports persist as PENDING in the ``pending_reports``
+    holding table (canonical trust state, validator keeps
+    needs_confirmation in sync). They are stored for later review but never
+    enter the trusted market dataset until an explicit PENDING -> ACCEPTED
+    confirmation.
+    """
     if response.report_data and (
         response.report_data.needs_confirmation or response.report_data.is_anomalous
     ):
+        from app.schemas.report import ReportTrustStatus
+
         data = response.report_data
         report_repo.save_pending(
             PriceReport(
@@ -573,6 +589,7 @@ def _persist_pending_review(response: ChatResponse, picker_id: str) -> ChatRespo
                 neighborhood=data.neighborhood,
                 location=data.location,
                 timestamp=datetime.now(timezone.utc),
+                trust_status=ReportTrustStatus.PENDING,
                 needs_confirmation=True,
                 confirmation_reason=data.confirmation_reason or data.anomaly_reason,
                 picker_id=picker_id,

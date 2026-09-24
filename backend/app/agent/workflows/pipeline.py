@@ -29,7 +29,9 @@ from app.schemas.report import (
     MaterialType,
     PriceReport,
     RawExtraction,
+    ReportTrustStatus,
 )
+from app.services.report_trust import mark_accepted, mark_pending
 from app.services.anomaly_detector import (
     anomaly_detector_service,
     comparable_prices,
@@ -165,6 +167,8 @@ def _recent_prices_for(report: PriceReport) -> List[float]:
     REST endpoint, and the detector share exactly one population
     implementation. Never pools across incompatible markets and never
     claims a local baseline across cities.
+    Step 8: history is ACCEPTED + fresh only -- PENDING/REJECTED reports
+    never judge future reports.
     """
     return comparable_prices(report, report_repo.trusted_reports())
 
@@ -178,7 +182,21 @@ def _flagged_results(state: PipelineState) -> List[AnomalyVerdict]:
 
 
 def _finalize(price_report: PriceReport, verdict: AnomalyVerdict, message: str) -> dict:
-    """Single place a report is ever written to the trusted store."""
+    """Single place a pipeline report reaches its trust decision (Step 8).
+
+    - Normal (not anomalous) -> ACCEPTED -> persisted to the trusted store,
+      eligible for estimator + anomaly history.
+    - Flagged (anomalous) -> PENDING -> NOT persisted to the trusted store
+      here; the flagged report is captured for the chat pending-review slot
+      (``pending_reports`` table via ``_persist_pending_review``), where it
+      remains stored but excluded from market data until explicit review.
+      The LLM is a decision signal only: it never writes trust directly,
+      only via this deterministic finalize step.
+
+    Returns the updated ``price_report`` in state so in-memory trust always
+    matches the captured review data (no ACCEPTED + needs_confirmation
+    contradictions).
+    """
     logger.info(
         "Finalizing pipeline run: is_anomalous=%s, method='%s', message='%s'",
         verdict.is_anomalous,
@@ -186,11 +204,19 @@ def _finalize(price_report: PriceReport, verdict: AnomalyVerdict, message: str) 
         message,
     )
     if not verdict.is_anomalous:
+        price_report = mark_accepted(price_report)
         report_repo.add(price_report)
     else:
-        logger.warning("Report flagged as anomalous by %s check; not storing.", verdict.method)
+        price_report = mark_pending(
+            price_report, f"{verdict.method} anomaly check: {verdict.reason}"
+        )
+        logger.warning(
+            "Report flagged as anomalous by %s check; held as PENDING for review, not storing in trusted pool.",
+            verdict.method,
+        )
     _capture_report(price_report, verdict)
     return {
+        "price_report": price_report,
         "verdict": verdict,
         "messages": [{"role": "assistant", "content": message}],
     }
@@ -306,6 +332,9 @@ def validate_and_build(state: PipelineState) -> dict:
     raw_location = getattr(raw, "location_text", None)
     if raw_location and raw_location.strip().lower() == "unknown":
         raw_location = None
+    # Step 8: validation outcome maps directly to canonical trust.
+    # needs_confirmation=True <=> PENDING (validator enforces no
+    # contradictory ACCEPTED + needs_confirmation state).
     price_report = PriceReport(
         material_type=raw.material_type,
         quantity_kg=raw.quantity_kg or 0.0,
@@ -317,6 +346,7 @@ def validate_and_build(state: PipelineState) -> dict:
         neighborhood=neighborhood,
         location=normalize_location(raw_location or neighborhood),
         timestamp=datetime.now(timezone.utc),
+        trust_status=ReportTrustStatus.PENDING if reasons else ReportTrustStatus.ACCEPTED,
         needs_confirmation=bool(reasons),
         confirmation_reason="; ".join(reasons) if reasons else None,
     )

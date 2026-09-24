@@ -17,7 +17,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas.market import (
     UNKNOWN_CURRENCY,
@@ -36,6 +36,24 @@ class MaterialType(str, Enum):
     CARDBOARD = "cardboard"
     MIXED_PAPER = "mixed_paper"
     OTHER = "other"
+
+
+class ReportTrustStatus(str, Enum):
+    """Canonical report trust lifecycle (Step 8).
+
+    - PENDING: flagged/suspicious, stored for review, NEVER market data.
+    - ACCEPTED: explicitly trusted, eligible for estimation/anomaly history.
+    - REJECTED: reviewed and rejected, stored for audit, NEVER market data.
+
+    This is distinct from any sale/business status. Trust status is the
+    single authority for market-data eligibility; ``needs_confirmation``
+    is a legacy-compatible derived flag (True <=> PENDING) kept in sync
+    by the validator below so old payloads and old DB rows keep working.
+    """
+
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
 
 
 def _total_price_alias() -> AliasChoices:
@@ -98,9 +116,51 @@ class PriceReport(BaseModel):
     neighborhood: Optional[str] = None
     location: str = "unknown"
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    trust_status: ReportTrustStatus = Field(default=ReportTrustStatus.ACCEPTED)
     needs_confirmation: bool = False
     confirmation_reason: Optional[str] = None
     picker_id: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _sync_trust_status(self):
+        """Keep one canonical trust state (Step 8).
+
+        - ``needs_confirmation=True`` (legacy) implies PENDING.
+        - PENDING implies ``needs_confirmation=True``.
+        - ACCEPTED implies ``needs_confirmation=False``.
+        - REJECTED is decided: ``needs_confirmation=False``.
+
+        Legacy handling (§26): rows persisted before Step 8 have no
+        ``trust_status`` and default to ACCEPTED here. That is correct for
+        the main ``reports`` table, which historically only ever stored
+        validated non-anomalous reports. Legacy ``pending_reports`` rows
+        (which always had ``needs_confirmation=True``) are corrected to
+        PENDING below instead of being silently declared accepted.
+        """
+        raw_status = self.trust_status
+        status_val = (
+            raw_status.value if isinstance(raw_status, Enum) else str(raw_status or "")
+        ).strip().lower()
+        needs = bool(self.needs_confirmation)
+
+        if status_val == ReportTrustStatus.REJECTED.value:
+            # Decided -- never needs confirmation.
+            object.__setattr__(self, "trust_status", ReportTrustStatus.REJECTED.value)
+            object.__setattr__(self, "needs_confirmation", False)
+        elif needs:
+            # Legacy flag wins: anything needing confirmation is PENDING,
+            # never silently ACCEPTED.
+            object.__setattr__(self, "trust_status", ReportTrustStatus.PENDING.value)
+            object.__setattr__(self, "needs_confirmation", True)
+        elif status_val == ReportTrustStatus.PENDING.value:
+            # Explicit PENDING without the flag -- fix the flag.
+            object.__setattr__(self, "trust_status", ReportTrustStatus.PENDING.value)
+            object.__setattr__(self, "needs_confirmation", True)
+        else:
+            # ACCEPTED (including legacy default) with no flag -- canonical.
+            object.__setattr__(self, "trust_status", ReportTrustStatus.ACCEPTED.value)
+            object.__setattr__(self, "needs_confirmation", False)
+        return self
 
     @field_validator("currency", mode="before")
     @classmethod

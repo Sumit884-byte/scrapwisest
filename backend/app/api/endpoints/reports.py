@@ -12,7 +12,14 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.core.config import settings
 from app.repositories.report_repository import report_repo
-from app.schemas.report import MaterialType, PriceReport, ReportCreate, ReportResponse
+from app.schemas.report import (
+    MaterialType,
+    PriceReport,
+    ReportCreate,
+    ReportResponse,
+    ReportTrustStatus,
+)
+from app.services.report_trust import mark_accepted, mark_pending
 from app.services.location_resolver import (
     UNKNOWN_CURRENCY,
     normalize_currency,
@@ -89,6 +96,9 @@ async def create_report(payload: ReportCreate):
     raw_location = (payload.location or "").strip()
     if not raw_location or raw_location.lower() == "unknown":
         raw_location = neighborhood or "unknown"
+    # Step 8: canonical trust state is explicit from intake. Validation
+    # failures start as PENDING (never silently ACCEPTED); the validator
+    # keeps needs_confirmation in sync so no contradictory state exists.
     report = PriceReport(
         material_type=payload.material_type,
         quantity_kg=payload.quantity_kg,
@@ -100,6 +110,7 @@ async def create_report(payload: ReportCreate):
         neighborhood=neighborhood,
         location=normalize_location(raw_location),
         timestamp=datetime.now(timezone.utc),
+        trust_status=ReportTrustStatus.PENDING if reasons else ReportTrustStatus.ACCEPTED,
         needs_confirmation=bool(reasons),
         confirmation_reason="; ".join(reasons) if reasons else None,
         picker_id=payload.picker_id,
@@ -108,6 +119,10 @@ async def create_report(payload: ReportCreate):
     # Step 4: anomaly populations are market/location scoped (same material
     # + same market, tightest location scope with data) -- never pooled
     # across incompatible markets or across cities for a local baseline.
+    # Step 8: history is ACCEPTED + fresh only (canonical trust + Step 7
+    # freshness inside comparable_*). The current report is evaluated
+    # against trusted history BEFORE it is persisted, so it never anchors
+    # its own baseline.
     trusted = report_repo.trusted_reports()
     recent_prices = comparable_prices(report, trusted)
     verdict = anomaly_detector_service.deterministic_check(report, recent_prices)
@@ -117,18 +132,25 @@ async def create_report(payload: ReportCreate):
             median = market_median_for(report, trusted)
             verdict = anomaly_detector_service.ml_check(report, median)
 
-    if verdict.is_anomalous:
-        report.needs_confirmation = True
-        report.confirmation_reason = (
-            f"{verdict.method} anomaly check: {verdict.reason}"
-        )
+    if reasons or verdict.is_anomalous:
+        # Flagged -> PENDING: persisted for review, NEVER market data.
+        # Validation reasons and anomaly evidence are both preserved.
+        parts: list[str] = []
+        if reasons:
+            parts.append("; ".join(reasons))
+        if verdict.is_anomalous:
+            parts.append(f"{verdict.method} anomaly check: {verdict.reason}")
+        report = mark_pending(report, "; ".join(parts))
+        report_repo.add(report)
         logger.warning(
-            "REST report held for confirmation: material=%s location=%s reason=%s",
+            "REST report held for review as PENDING: material=%s location=%s reason=%s",
             report.material_type,
             report.location,
             report.confirmation_reason,
         )
     else:
+        # Normal -> ACCEPTED: eligible for estimator + anomaly history.
+        report = mark_accepted(report)
         report_repo.add(report)
 
     return report

@@ -110,18 +110,25 @@ def _market_pool(
     now: Optional[datetime] = None,
     freshness_days: Optional[int] = None,
 ) -> List[PriceReport]:
-    """Same material + same market (country + currency), fresh only, any location.
+    """Same material + same market (country + currency), trusted + fresh, any location.
 
     Step 7: freshness is a population-selection rule -- only reports with
     ``timestamp >= now - freshness_days`` enter the pool. Location tiers
     below therefore never see stale data.
+
+    Step 8: only ACCEPTED reports are market data -- PENDING/REJECTED
+    reports never enter the pool even when callers pass unfiltered lists.
+    Uses the canonical ``is_trusted_report`` helper so trust has exactly
+    one implementation.
     """
+    from app.services.report_trust import is_trusted_report
+
     wanted = _material_value(report)
     fresh = filter_fresh_reports(candidates, now=now, freshness_days=freshness_days)
     return [
         r
         for r in fresh
-        if _material_value(r) == wanted and in_same_market(report, r)
+        if _material_value(r) == wanted and in_same_market(report, r) and is_trusted_report(r)
     ]
 
 
@@ -399,6 +406,9 @@ class AnomalyDetectorService:
         # Step 7: training uses fresh reports only so stale history cannot
         # contaminate the learned distribution. Features stay
         # [price_ratio, log1p(quantity)] -- no timestamp feature.
+        # Step 8: trusted_reports() is ACCEPTED-only, so pending/rejected
+        # reports never contaminate training; filter_fresh_reports composes
+        # trust + freshness (accepted AND fresh).
         trusted = filter_fresh_reports(
             self.repo.trusted_reports(), now=now, freshness_days=freshness_days
         )
