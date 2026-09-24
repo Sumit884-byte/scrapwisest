@@ -45,6 +45,19 @@ export interface ReportData {
   anomaly_method?: string | null
 }
 
+export interface PriceEvidence {
+  /** Where the number came from: real reports, verified seed, or no data. */
+  source: 'reports' | 'seed' | 'unavailable'
+  /** Geographic scope that produced the estimate. */
+  scope: 'neighborhood' | 'neighborhood+city' | 'city' | 'country' | 'seed' | 'unavailable'
+  /** Eligible (accepted + fresh) reports supporting the selected scope. */
+  report_count: number
+  currency?: string | null
+  country?: string | null
+  freshness_days?: number | null
+  seed_source?: string | null
+}
+
 export interface PriceData {
   material_type: string
   location: string
@@ -63,6 +76,8 @@ export interface PriceData {
   used_external_context?: boolean
   external_context?: string | null
   external_sources?: string[]
+  /** Step 9 explainability (additive, optional for backward compatibility). */
+  evidence?: PriceEvidence | null
 }
 
 /** Shape of the backend's `POST /chat` success response. */

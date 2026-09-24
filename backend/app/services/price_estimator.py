@@ -32,7 +32,7 @@ from app.core.config import settings
 from app.repositories.report_repository import ReportRepository, report_repo
 from app.services.report_freshness import filter_fresh_reports
 from app.schemas.market import UNKNOWN_CURRENCY, market_key
-from app.schemas.price import PriceEstimate
+from app.schemas.price import PriceEstimate, PriceEvidence
 from app.schemas.report import MaterialType, PriceReport
 from app.services.location_resolver import (
     neighborhood_label,
@@ -212,6 +212,46 @@ def _report_matches_market(
     return (report_country or "").lower() == request_country.lower()
 
 
+def _applied_freshness_days(freshness_days: Optional[int]) -> int:
+    """Freshness window (days) actually applied to this estimate.
+
+    Single rule: explicit override wins, otherwise the configured
+    ``REPORT_FRESHNESS_DAYS``. Mirrors ``report_freshness._resolve_window``
+    without importing private helpers, so evidence always names the window
+    the estimator filtered with.
+    """
+    if freshness_days is None:
+        return int(settings.REPORT_FRESHNESS_DAYS)
+    return int(freshness_days)
+
+
+def _make_evidence(
+    *,
+    source: str,
+    scope: str,
+    report_count: int,
+    currency: str,
+    country: Optional[str],
+    freshness_days: int,
+    seed_source: Optional[str] = None,
+) -> PriceEvidence:
+    """Build Step 9 evidence with the canonical market identity.
+
+    ``currency``/``country`` are the estimator's already-normalized request
+    values, so ``evidence.market_key()`` always equals the market the pools
+    were filtered with -- no second market representation, no conversion.
+    """
+    return PriceEvidence(
+        source=source,  # type: ignore[arg-type]
+        scope=scope,  # type: ignore[arg-type]
+        report_count=int(report_count),
+        currency=currency,
+        country=country,
+        freshness_days=int(freshness_days),
+        seed_source=seed_source,
+    )
+
+
 class PriceEstimatorService:
     def __init__(self, repo: Optional[ReportRepository] = None):
         self.repo = repo or report_repo
@@ -243,6 +283,13 @@ class PriceEstimatorService:
         trusted reports exist the market-specific seed (or ``unavailable``)
         applies. Seeds themselves never expire. Use the requested market's
         local currency; never convert currencies.
+
+        Step 9: every result carries ``evidence`` built from the SAME
+        eligible pools that priced it (source/scope/report_count/market/
+        freshness_days/seed_source). Confidence formulas are preserved
+        exactly; seed reports ``source="seed"`` with ``report_count=0`` and
+        ``unavailable`` reports ``source="unavailable"`` with
+        ``confidence=0``.
         """
         if reports is None:
             reports = self.repo.trusted_reports()
@@ -343,17 +390,41 @@ class PriceEstimatorService:
         n_city = len(city_prices)
         n_country = len(country_prices)
 
+        # Step 9: evidence window is the same freshness window the pools
+        # above were filtered with (explicit override or configured default).
+        applied_freshness = _applied_freshness_days(freshness_days)
+
+        # Step 9 evidence placeholders -- set on every branch below from the
+        # SAME eligible pools that price the estimate (accepted + fresh +
+        # same material/market/scope). Confidence math below is preserved
+        # exactly; only evidence metadata is added.
+        ev_source = "reports"
+        ev_scope = "neighborhood"
+        ev_count = 0
+        ev_seed_source: Optional[str] = None
+
         if n_local >= self.min_local and n_city >= self.min_city:
             local_w = n_local / (n_local + n_city)
             city_w = 1.0 - local_w
             price = local_w * statistics.median(local_prices) + city_w * statistics.median(city_prices)
             conf = min(0.95, 0.6 + 0.35 * (n_local / (self.min_local * 2)))
             tier = "local+city"
+            # Blended neighborhood + city medians. Pools are nested
+            # (neighborhood ⊆ city), so the distinct supporting reports are
+            # the city pool -- never n_local + n_city (no double-count).
+            ev_source = "reports"
+            ev_scope = "neighborhood+city"
+            ev_count = n_city
+            ev_seed_source = None
 
         elif n_local >= self.min_local:
             price = statistics.median(local_prices)
             conf = min(0.90, 0.55 + 0.35 * (n_local / (self.min_local * 3)))
             tier = "local"
+            ev_source = "reports"
+            ev_scope = "neighborhood"
+            ev_count = n_local
+            ev_seed_source = None
 
         elif n_city >= self.min_city:
             city_med = statistics.median(city_prices)
@@ -364,6 +435,12 @@ class PriceEstimatorService:
                 price = city_med
             conf = min(0.70, 0.35 + 0.35 * (n_city / (self.min_city * 2)))
             tier = "city"
+            # Reports supported the number even when blended with the seed;
+            # only the pure no-report fallback is source="seed".
+            ev_source = "reports"
+            ev_scope = "city"
+            ev_count = n_city
+            ev_seed_source = None
 
         elif n_country >= self.min_city:
             country_med = statistics.median(country_prices)
@@ -374,20 +451,27 @@ class PriceEstimatorService:
                 price = country_med
             conf = min(0.70, 0.35 + 0.35 * (n_country / (self.min_city * 2)))
             tier = "country"
+            ev_source = "reports"
+            ev_scope = "country"
+            ev_count = n_country
+            ev_seed_source = None
 
         elif n_local > 0 or n_city > 0 or n_country > 0:
             if local_prices:
                 prices = local_prices
                 threshold = self.min_local
                 tier = "local"
+                ev_scope = "neighborhood"
             elif city_prices:
                 prices = city_prices
                 threshold = self.min_city
                 tier = "city"
+                ev_scope = "city"
             else:
                 prices = country_prices
                 threshold = self.min_city
                 tier = "country"
+                ev_scope = "country"
             data_med = statistics.median(prices)
             n = len(prices)
             data_w = n / threshold
@@ -396,12 +480,21 @@ class PriceEstimatorService:
             else:
                 price = data_med
             conf = 0.20 + 0.15 * data_w
+            # Thin-data tier still comes from real reports (seed-blended or
+            # not); report_count is the distinct thin pool that priced it.
+            ev_source = "reports"
+            ev_count = n
+            ev_seed_source = None
 
         else:
             if seed is not None:
                 price = seed
                 conf = 0.20
                 tier = "seed"
+                ev_source = "seed"
+                ev_scope = "seed"
+                ev_count = 0
+                ev_seed_source = settings.SEED_SOURCE
             else:
                 # No reports and no verified seed for this market: signal
                 # "no estimate" instead of inventing a number.
@@ -420,6 +513,15 @@ class PriceEstimatorService:
                     local_report_count=0,
                     city_report_count=0,
                     country_report_count=0,
+                    evidence=_make_evidence(
+                        source="unavailable",
+                        scope="unavailable",
+                        report_count=0,
+                        currency=request_currency,
+                        country=request_country_part,
+                        freshness_days=applied_freshness,
+                        seed_source=None,
+                    ),
                 )
                 logger.info(
                     "No market data or seed for material='%s' market=(currency='%s', country='%s') "
@@ -489,10 +591,20 @@ class PriceEstimatorService:
             local_report_count=n_local,
             city_report_count=n_city,
             country_report_count=n_country,
+            evidence=_make_evidence(
+                source=ev_source,
+                scope=ev_scope,
+                report_count=ev_count,
+                currency=request_currency,
+                country=request_country_part,
+                freshness_days=applied_freshness,
+                seed_source=ev_seed_source,
+            ),
         )
         logger.info(
             "Price estimate result: material='%s' location='%s' market=(currency='%s', country='%s', city='%s') "
-            "-> price=%.2f %s/kg, confidence=%.3f, tier='%s' (n_local=%d, n_city=%d, n_country=%d)",
+            "-> price=%.2f %s/kg, confidence=%.3f, tier='%s' (n_local=%d, n_city=%d, n_country=%d) "
+            "evidence=(source=%s, scope=%s, report_count=%d, freshness=%dd)",
             material_val,
             display_location,
             request_currency,
@@ -505,6 +617,10 @@ class PriceEstimatorService:
             n_local,
             n_city,
             n_country,
+            ev_source,
+            ev_scope,
+            ev_count,
+            applied_freshness,
         )
         return res
 
