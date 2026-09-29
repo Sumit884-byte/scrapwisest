@@ -68,7 +68,7 @@ def normalize_location(value: str | None) -> str:
     original = value.strip()
     text = re.sub(r"\s+", " ", original.lower())
     text = re.sub(r"\b(?:near|around|close to|ke qareeb|kay qareeb)\b", "", text)
-    text = re.sub(r"[,\-]+", " ", text)
+    text = re.sub(r"[,]+", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
 
     if not text:
@@ -83,7 +83,7 @@ def normalize_location(value: str | None) -> str:
         if alias in text:
             return canonical
 
-    return text.title()
+    return re.sub(r"(?<=-)[A-Z]", lambda m: m.group(0).lower(), text.title())
 
 
 def _fold_part(value: str | None) -> str:
