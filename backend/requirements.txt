@@ -22,3 +22,6 @@ edge-tts
 
 PyJWT
 pwdlib[argon2]
+
+PyJWT
+pwdlib[argon2]
