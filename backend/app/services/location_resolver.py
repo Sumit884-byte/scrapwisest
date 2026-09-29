@@ -83,7 +83,7 @@ def normalize_location(value: str | None) -> str:
         if alias in text:
             return canonical
 
-    return re.sub(r"(?<=-)[A-Z]", lambda m: m.group(0).lower(), text.title())
+    return text.title().replace("-E-", "-e-")
 
 
 def _fold_part(value: str | None) -> str:
