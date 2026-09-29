@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     DEBUG: bool = False
     DEMO_MODE: bool = False
+
+    AUTH_SECRET_KEY: str = "change-this-secret-key"
+    AUTH_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+
     CORS_ORIGINS: List[str] = ["*"]
 
     # Filesystem Directories
