@@ -33,7 +33,13 @@ class ReportRepository:
         return con
 
     def add(self, report: PriceReport) -> None:
-        """Store a validated, non-anomalous price report."""
+        """Store a report in any trust state (ACCEPTED, PENDING, REJECTED).
+
+        Step 8: flagged PENDING and audited REJECTED reports remain stored
+        for review/history, but only ACCEPTED reports are market data (see
+        ``trusted_reports``). Trust state survives save -> reload via the
+        serialized ``trust_status`` field.
+        """
         with self._conn() as con:
             con.execute("INSERT INTO reports VALUES (?)", (report.model_dump_json(),))
         logger.info(
@@ -54,8 +60,23 @@ class ReportRepository:
         return reports
 
     def trusted_reports(self) -> List[PriceReport]:
-        """Fetch reports that do not require picker confirmation."""
-        return [r for r in self.all_reports() if not r.needs_confirmation]
+        """Fetch the trusted market dataset: ACCEPTED reports only.
+
+        Step 8 canonical filter (see ``app.services.report_trust``):
+        PENDING and REJECTED reports remain in ``all_reports`` for
+        review/audit but never appear here, so they can never influence
+        price estimation or anomaly history. Legacy rows without an
+        explicit ``trust_status`` parse as ACCEPTED only when they also
+        have ``needs_confirmation=False`` -- the historical invariant of
+        this table, which never stored unvalidated reports.
+        """
+        from app.services.report_trust import filter_trusted_reports
+
+        return filter_trusted_reports(self.all_reports())
+
+    def get_trusted_reports(self) -> List[PriceReport]:
+        """Canonical trusted-report query (alias for ``trusted_reports``)."""
+        return self.trusted_reports()
 
     def save_pending(self, report: PriceReport) -> None:
         """Save or replace the one pending review for a picker."""

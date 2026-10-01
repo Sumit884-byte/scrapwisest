@@ -27,15 +27,17 @@ export interface ChatMessage {
 export interface ReportData {
   material_type: string
   quantity_kg: number
-  total_price?: number
-  price_per_kg?: number
-  price_paid_pkr?: number
-  price_paid_pkr_per_kg?: number
-  currency?: string
+  /** Generic backend contract: total money received for the sale. */
+  total_price: number
+  /** Generic backend contract: derived rate per kilogram. */
+  price_per_kg: number
+  /** ISO currency code from the backend (e.g. PKR, INR, USD, or "unknown"). */
+  currency?: string | null
   country?: string | null
   city?: string | null
   neighborhood?: string | null
-  location: string
+  /** Legacy free-form place string; prefer country/city/neighborhood. */
+  location?: string | null
   needs_confirmation: boolean
   confirmation_reason?: string | null
   is_anomalous: boolean
@@ -43,20 +45,39 @@ export interface ReportData {
   anomaly_method?: string | null
 }
 
+export interface PriceEvidence {
+  /** Where the number came from: real reports, verified seed, or no data. */
+  source: 'reports' | 'seed' | 'unavailable'
+  /** Geographic scope that produced the estimate. */
+  scope: 'neighborhood' | 'neighborhood+city' | 'city' | 'country' | 'seed' | 'unavailable'
+  /** Eligible (accepted + fresh) reports supporting the selected scope. */
+  report_count: number
+  currency?: string | null
+  country?: string | null
+  freshness_days?: number | null
+  seed_source?: string | null
+}
+
 export interface PriceData {
   material_type: string
   location: string
   estimated_price_per_kg: number
-  currency?: string
+  /** Currency the estimate is denominated in ("unknown" when never named). */
+  currency?: string | null
   min_price_per_kg?: number | null
   max_price_per_kg?: number | null
   confidence: number
+  /** Backend tier: "local" | "local+city" | "city" | "country" | "seed" | "unavailable" */
   tier_used: string
   local_report_count: number
   city_report_count: number
+  /** Reports pooled at the country/market scope. Defaults to 0 downstream. */
+  country_report_count?: number | null
   used_external_context?: boolean
   external_context?: string | null
   external_sources?: string[]
+  /** Step 9 explainability (additive, optional for backward compatibility). */
+  evidence?: PriceEvidence | null
 }
 
 /** Shape of the backend's `POST /chat` success response. */

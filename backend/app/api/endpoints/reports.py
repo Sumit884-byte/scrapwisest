@@ -12,14 +12,26 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.core.config import settings
 from app.repositories.report_repository import report_repo
-from app.schemas.report import MaterialType, PriceReport, ReportCreate, ReportResponse
-from app.schemas.market import canonicalize_country, is_unknown_currency, resolve_currency
+from app.schemas.report import (
+    MaterialType,
+    PriceReport,
+    ReportCreate,
+    ReportResponse,
+    ReportTrustStatus,
+)
+from app.services.report_trust import mark_accepted, mark_pending
 from app.services.location_resolver import (
+    UNKNOWN_CURRENCY,
+    normalize_currency,
     normalize_location,
     normalize_place_part,
     validate_market_fields,
 )
-from app.services.anomaly_detector import anomaly_detector_service
+from app.services.anomaly_detector import (
+    anomaly_detector_service,
+    comparable_prices,
+    market_median_for,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,9 +42,6 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 async def list_reports(
     material: Optional[str] = Query(None, description="Filter by material type"),
     location: Optional[str] = Query(None, description="Filter by neighborhood/location"),
-    currency: Optional[str] = Query(None, description="Filter by ISO currency"),
-    country: Optional[str] = Query(None, description="Filter by country"),
-    city: Optional[str] = Query(None, description="Filter by city"),
     trusted_only: bool = Query(True, description="Only return reports that passed validation without confirmation"),
 ):
     """
@@ -51,16 +60,6 @@ async def list_reports(
     else:
         reports = report_repo.trusted_reports() if trusted_only else report_repo.all_reports()
 
-    if currency:
-        wanted = resolve_currency(currency, None, country)
-        reports = [r for r in reports if r.currency == wanted]
-    if country:
-        wanted_country = canonicalize_country(country)
-        reports = [r for r in reports if r.country == wanted_country]
-    if city:
-        wanted_city = city.strip().lower()
-        reports = [r for r in reports if (r.city or "").strip().lower() == wanted_city]
-
     return reports
 
 
@@ -70,22 +69,23 @@ async def create_report(payload: ReportCreate):
     Directly log a validated scrap sale report into the system.
     """
     price_per_kg = payload.total_price / payload.quantity_kg
-    country = canonicalize_country(payload.country)
+    currency = normalize_currency(payload.currency)
+    country = normalize_place_part(payload.country)
     city = normalize_place_part(payload.city)
     neighborhood = normalize_place_part(payload.neighborhood)
-    currency = resolve_currency(payload.currency, None, country)
 
     reasons: list[str] = validate_market_fields(currency, country, city, neighborhood)
-    if is_unknown_currency(currency):
-        reasons.append("currency unknown")
 
-    mat_key = (
-        payload.material_type.value
-        if hasattr(payload.material_type, "value")
-        else str(payload.material_type)
-    )
-    if currency == "PKR" and mat_key in settings.PRICE_PER_KG_BANDS:
-        min_band, max_band = settings.PRICE_PER_KG_BANDS[mat_key]
+    # Single source of truth is ``settings.price_band_for`` (verified
+    # Pakistan/PKR). Raw-config fallback preserves legacy PKR/unknown
+    # behavior exactly; other explicit currencies skip the check.
+    if currency in ("PKR", UNKNOWN_CURRENCY):
+        band = settings.price_band_for(
+            payload.material_type, country, currency
+        ) or settings.PRICE_PER_KG_BANDS.get(
+            payload.material_type.value, (5.0, 500.0)
+        )
+        min_band, max_band = band
         if not (min_band <= price_per_kg <= max_band):
             reasons.append(
                 f"Price per kg ({price_per_kg:.1f}) outside sanity range "
@@ -98,6 +98,9 @@ async def create_report(payload: ReportCreate):
     raw_location = (payload.location or "").strip()
     if not raw_location or raw_location.lower() == "unknown":
         raw_location = neighborhood or "unknown"
+    # Step 8: canonical trust state is explicit from intake. Validation
+    # failures start as PENDING (never silently ACCEPTED); the validator
+    # keeps needs_confirmation in sync so no contradictory state exists.
     report = PriceReport(
         material_type=payload.material_type,
         quantity_kg=payload.quantity_kg,
@@ -109,51 +112,47 @@ async def create_report(payload: ReportCreate):
         neighborhood=neighborhood,
         location=normalize_location(raw_location),
         timestamp=datetime.now(timezone.utc),
+        trust_status=ReportTrustStatus.PENDING if reasons else ReportTrustStatus.ACCEPTED,
         needs_confirmation=bool(reasons),
         confirmation_reason="; ".join(reasons) if reasons else None,
         picker_id=payload.picker_id,
     )
 
-    wanted = report.market_key()
-    recent = [
-        item
-        for item in report_repo.find_by_material_and_location(
-            payload.material_type,
-            report.location,
-            trusted_only=True,
-        )
-        if item.market_key() == wanted
-    ]
-    recent_prices = [item.price_per_kg for item in recent]
+    # Step 4: anomaly populations are market/location scoped (same material
+    # + same market, tightest location scope with data) -- never pooled
+    # across incompatible markets or across cities for a local baseline.
+    # Step 8: history is ACCEPTED + fresh only (canonical trust + Step 7
+    # freshness inside comparable_*). The current report is evaluated
+    # against trusted history BEFORE it is persisted, so it never anchors
+    # its own baseline.
+    trusted = report_repo.trusted_reports()
+    recent_prices = comparable_prices(report, trusted)
     verdict = anomaly_detector_service.deterministic_check(report, recent_prices)
 
     if not verdict.is_anomalous and anomaly_detector_service.ml_model is not None:
-        material_prices = [
-            item.price_per_kg
-            for item in report_repo.find_by_material_and_location(
-                payload.material_type,
-                trusted_only=True,
-            )
-            if item.market_key() == wanted
-        ]
         if len(recent_prices) >= settings.MIN_REPORTS_FOR_BASELINE:
-            import statistics
-
-            median = statistics.median(material_prices or recent_prices)
+            median = market_median_for(report, trusted)
             verdict = anomaly_detector_service.ml_check(report, median)
 
-    if verdict.is_anomalous:
-        report.needs_confirmation = True
-        report.confirmation_reason = (
-            f"{verdict.method} anomaly check: {verdict.reason}"
-        )
+    if reasons or verdict.is_anomalous:
+        # Flagged -> PENDING: persisted for review, NEVER market data.
+        # Validation reasons and anomaly evidence are both preserved.
+        parts: list[str] = []
+        if reasons:
+            parts.append("; ".join(reasons))
+        if verdict.is_anomalous:
+            parts.append(f"{verdict.method} anomaly check: {verdict.reason}")
+        report = mark_pending(report, "; ".join(parts))
+        report_repo.add(report)
         logger.warning(
-            "REST report held for confirmation: material=%s location=%s reason=%s",
+            "REST report held for review as PENDING: material=%s location=%s reason=%s",
             report.material_type,
             report.location,
             report.confirmation_reason,
         )
     else:
+        # Normal -> ACCEPTED: eligible for estimator + anomaly history.
+        report = mark_accepted(report)
         report_repo.add(report)
 
     return report

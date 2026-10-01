@@ -17,7 +17,6 @@ from app.schemas.report import (
 from app.schemas.price import PriceEstimate, PriceEstimateRequest, PriceEstimateResponse
 from app.schemas.material import MaterialInfo, MaterialListResponse
 from app.schemas.chat import ChatRequest, ChatResponse
-from app.schemas.health import HealthResponse
 
 __all__ = [
     "MAX_PLACE_PART_LEN",
@@ -39,5 +38,4 @@ __all__ = [
     "MaterialListResponse",
     "ChatRequest",
     "ChatResponse",
-    "HealthResponse",
 ]

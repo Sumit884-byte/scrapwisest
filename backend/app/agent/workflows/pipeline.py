@@ -29,8 +29,16 @@ from app.schemas.report import (
     MaterialType,
     PriceReport,
     RawExtraction,
+    ReportTrustStatus,
 )
-from app.services.anomaly_detector import anomaly_detector_service
+from app.services.report_trust import mark_accepted, mark_pending
+from app.services.anomaly_detector import (
+    anomaly_detector_service,
+    comparable_prices,
+    describe_market,
+    market_median_for,
+    population_scope,
+)
 from app.services.location_resolver import (
     UNKNOWN_CURRENCY,
     is_plausible_currency,
@@ -48,9 +56,23 @@ logger = logging.getLogger(__name__)
 
 KNOWN_MATERIALS = [m.value for m in MaterialType]
 
-PRICE_PER_KG_BANDS = {
-    MaterialType(k): v for k, v in settings.PRICE_PER_KG_BANDS.items()
-}
+# Single source of truth is ``settings`` (verified Pakistan/PKR bands).
+# Kept under the legacy name for backwards compatibility; values are
+# resolved via ``settings.price_band_for`` for the verified market with
+# raw-config fallback so behavior is identical.
+def _verified_band(material_key: str) -> tuple[float, float]:
+    band = settings.price_band_for(
+        material_key,
+        settings.SEED_MARKET_COUNTRY,
+        settings.SEED_MARKET_CURRENCY,
+    )
+    if band is not None:
+        return band
+    raw = settings.PRICE_PER_KG_BANDS.get(material_key.strip().lower())
+    return tuple(raw) if raw is not None else (5.0, 500.0)
+
+
+PRICE_PER_KG_BANDS = {MaterialType(k): _verified_band(k) for k in settings.PRICE_PER_KG_BANDS}
 
 
 def _material_label(material) -> str:
@@ -130,9 +152,16 @@ LLM_JUDGE_PROMPT = """A waste picker submitted a scrap sale report that one \
 or more automated checks flagged as unusual. Decide whether it's likely a \
 legitimate outlier or likely a bad/manipulated report.
 
-Report: {material} -- {quantity} kg sold at {price_per_kg} {currency}/kg in {location}.
-Recent price/kg reports for this material in this area: {recent_prices}
+Report: {material} -- {quantity} kg sold at {price_per_kg} {currency}/kg in {market} (area: {location}; scope: {scope}).
+Recent price/kg reports for this material in this market/scope: {recent_prices}
 What got flagged and why: {flag_reasons}
+
+Compare only against the listed market/scope history above -- e.g. 250 \
+PKR/kg in Multan, Pakistan is a different market from 35 INR/kg in Delhi, \
+India and must never be judged against each other. Do not calculate the \
+baseline yourself; the deterministic/ML layers already established the \
+evidence. Judge only whether the flagged report is a legitimate outlier \
+or likely bad/manipulated.
 
 Legitimate outliers happen -- e.g. heavily contaminated material sells for \
 much less, an unusually large or clean batch is a real bulk sale, or a \
@@ -143,18 +172,19 @@ reason, or fits a pattern with no real-world explanation.
 
 
 def _recent_prices_for(report: PriceReport) -> List[float]:
-    """Trusted price/kg history for this material in this area.
+    """Trusted price/kg history for this report's anomaly population.
 
-    NOTE (Step 1): market scoping (same currency/country/city pooling)
-    is deliberately unchanged here -- a later step will stop pooling
-    across incompatible markets. Field names are generic already.
+    Step 4: same material + same market (``market_key(country, currency)``)
+    with the tightest location scope holding real data
+    (neighborhood -> city -> market). Delegates to the canonical
+    ``comparable_prices()`` in the anomaly service so the pipeline, the
+    REST endpoint, and the detector share exactly one population
+    implementation. Never pools across incompatible markets and never
+    claims a local baseline across cities.
+    Step 8: history is ACCEPTED + fresh only -- PENDING/REJECTED reports
+    never judge future reports.
     """
-    return [
-        r.price_per_kg
-        for r in report_repo.trusted_reports()
-        if r.material_type == report.material_type
-        and r.location.strip().lower() == report.location.strip().lower()
-    ]
+    return comparable_prices(report, report_repo.trusted_reports())
 
 
 def _flagged_results(state: PipelineState) -> List[AnomalyVerdict]:
@@ -166,7 +196,21 @@ def _flagged_results(state: PipelineState) -> List[AnomalyVerdict]:
 
 
 def _finalize(price_report: PriceReport, verdict: AnomalyVerdict, message: str) -> dict:
-    """Single place a report is ever written to the trusted store."""
+    """Single place a pipeline report reaches its trust decision (Step 8).
+
+    - Normal (not anomalous) -> ACCEPTED -> persisted to the trusted store,
+      eligible for estimator + anomaly history.
+    - Flagged (anomalous) -> PENDING -> NOT persisted to the trusted store
+      here; the flagged report is captured for the chat pending-review slot
+      (``pending_reports`` table via ``_persist_pending_review``), where it
+      remains stored but excluded from market data until explicit review.
+      The LLM is a decision signal only: it never writes trust directly,
+      only via this deterministic finalize step.
+
+    Returns the updated ``price_report`` in state so in-memory trust always
+    matches the captured review data (no ACCEPTED + needs_confirmation
+    contradictions).
+    """
     logger.info(
         "Finalizing pipeline run: is_anomalous=%s, method='%s', message='%s'",
         verdict.is_anomalous,
@@ -174,11 +218,19 @@ def _finalize(price_report: PriceReport, verdict: AnomalyVerdict, message: str) 
         message,
     )
     if not verdict.is_anomalous:
+        price_report = mark_accepted(price_report)
         report_repo.add(price_report)
     else:
-        logger.warning("Report flagged as anomalous by %s check; not storing.", verdict.method)
+        price_report = mark_pending(
+            price_report, f"{verdict.method} anomaly check: {verdict.reason}"
+        )
+        logger.warning(
+            "Report flagged as anomalous by %s check; held as PENDING for review, not storing in trusted pool.",
+            verdict.method,
+        )
     _capture_report(price_report, verdict)
     return {
+        "price_report": price_report,
         "verdict": verdict,
         "messages": [{"role": "assistant", "content": message}],
     }
@@ -294,6 +346,9 @@ def validate_and_build(state: PipelineState) -> dict:
     raw_location = getattr(raw, "location_text", None)
     if raw_location and raw_location.strip().lower() == "unknown":
         raw_location = None
+    # Step 8: validation outcome maps directly to canonical trust.
+    # needs_confirmation=True <=> PENDING (validator enforces no
+    # contradictory ACCEPTED + needs_confirmation state).
     price_report = PriceReport(
         material_type=raw.material_type,
         quantity_kg=raw.quantity_kg or 0.0,
@@ -305,6 +360,7 @@ def validate_and_build(state: PipelineState) -> dict:
         neighborhood=neighborhood,
         location=normalize_location(raw_location or neighborhood),
         timestamp=datetime.now(timezone.utc),
+        trust_status=ReportTrustStatus.PENDING if reasons else ReportTrustStatus.ACCEPTED,
         needs_confirmation=bool(reasons),
         confirmation_reason="; ".join(reasons) if reasons else None,
     )
@@ -352,8 +408,9 @@ def deterministic_check_node(state: PipelineState) -> dict:
 
 def ml_check_node(state: PipelineState) -> dict:
     price_report = state["price_report"]
-    recent = _recent_prices_for(price_report)
-    median = statistics.median(recent) if recent else 0.0
+    # Market-scoped median (same material + market, any location) -- never a
+    # mixed-market median.
+    median = market_median_for(price_report, report_repo.trusted_reports())
     result = anomaly_detector_service.ml_check(price_report, median)
     return {"ml_result": result}
 
@@ -371,6 +428,8 @@ def llm_check_node(state: PipelineState) -> dict:
         price_per_kg=price_report.price_per_kg,
         currency=price_report.currency,
         location=price_report.location,
+        market=describe_market(price_report),
+        scope=population_scope(price_report, report_repo.trusted_reports()),
         recent_prices=recent,
         flag_reasons=flag_reasons,
     )
