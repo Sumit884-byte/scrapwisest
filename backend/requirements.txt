@@ -14,8 +14,14 @@ numpy
 pillow
 python-multipart
 scikit-learn
-sqlalchemy
+sqlalchemy[asyncio]
 aiosqlite
 alembic
 groq
 edge-tts
+
+PyJWT
+pwdlib[argon2]
+
+PyJWT
+pwdlib[argon2]
