@@ -14,10 +14,12 @@ numpy
 pillow
 python-multipart
 scikit-learn
-sqlalchemy
+sqlalchemy[asyncio]
 aiosqlite
 alembic
 groq
 edge-tts
 # Optional local English STT (Apple Silicon). Skip on Linux/CUDA; use NeMo there.
 parakeet-mlx; sys_platform == "darwin"
+PyJWT
+pwdlib[argon2]
