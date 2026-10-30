@@ -11,6 +11,9 @@ import logging
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 
+from app.core.config import settings
+from app.core.exceptions import QuotaExceededError
+from app.core.llm_budget import clip_text, reserve_llm
 from app.services.voice_service import (
     audio_media_type,
     stt_configured,
@@ -30,7 +33,7 @@ async def transcribe(file: UploadFile = File(...)):
     if not stt_configured():
         raise HTTPException(
             status_code=503,
-            detail="Voice transcription is not configured (SARVAM_API_KEY or GROQ_API_KEY).",
+            detail="Voice transcription is not configured (local Parakeet, SARVAM_API_KEY, or GROQ_API_KEY).",
         )
     audio = await file.read()
     if not audio:
@@ -40,7 +43,10 @@ async def transcribe(file: UploadFile = File(...)):
 
     filename = file.filename or "audio.webm"
     try:
+        reserve_llm("transcribe")
         text, language = await asyncio.to_thread(transcribe_audio, audio, filename)
+    except QuotaExceededError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception:
@@ -56,12 +62,13 @@ async def transcribe(file: UploadFile = File(...)):
 async def speak(
     text: str = Form(...),
     language: str = Form(""),
+    voice: str = Form(""),
 ):
-    cleaned = text.strip()
+    cleaned = clip_text(text, settings.LLM_MAX_SPEAK_CHARS)
     if not cleaned:
         raise HTTPException(status_code=400, detail="Provide text to speak.")
     try:
-        audio = await synthesize_speech(cleaned, language or None)
+        audio = await synthesize_speech(cleaned, language or None, voice or None)
     except Exception:
         logger.exception("Speech synthesis failed")
         raise HTTPException(status_code=500, detail="Could not generate speech.") from None

@@ -78,6 +78,10 @@ export interface PriceData {
   external_sources?: string[]
   /** Step 9 explainability (additive, optional for backward compatibility). */
   evidence?: PriceEvidence | null
+  /** Vision pile-size estimate (not a recorded sale). */
+  estimated_volume_liters?: number | null
+  estimated_quantity_kg?: number | null
+  volume_source?: string | null
 }
 
 /** Shape of the backend's `POST /chat` success response. */

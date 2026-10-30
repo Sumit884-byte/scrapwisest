@@ -117,6 +117,11 @@ class PriceEstimate(BaseModel):
     # number. Additive and optional so older stored payloads and older
     # clients keep parsing (missing -> None). New estimates always set it.
     evidence: Optional[PriceEvidence] = Field(default=None)
+    # Photo-only pile size from the vision grader. Optional so older
+    # payloads still parse. Never treated as a recorded sale quantity.
+    estimated_volume_liters: Optional[float] = None
+    estimated_quantity_kg: Optional[float] = None
+    volume_source: Optional[str] = None
 
 
 class PriceEstimateRequest(BaseModel):

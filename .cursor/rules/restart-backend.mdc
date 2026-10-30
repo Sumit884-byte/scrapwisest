@@ -1,0 +1,17 @@
+---
+description: Restart the FastAPI backend after any backend change
+globs: backend/**/*
+alwaysApply: true
+---
+
+# Restart backend after backend changes
+
+After changing anything under `backend/` (Python, `.env`, prompts, config, requirements), do a **full process restart** before telling the user it is ready. Do not rely on uvicorn `--reload` or settings cache.
+
+Start command (from `backend/`, with venv):
+
+```bash
+env -u DATABASE_URL -u SARVAM_API_KEY uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Unset `DATABASE_URL` and `SARVAM_API_KEY` in the process environment so `backend/.env` wins. Never print secrets. Confirm with `GET /health`.

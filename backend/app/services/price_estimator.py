@@ -521,8 +521,11 @@ class PriceEstimatorService:
         external_context = None
         external_sources: list[str] = []
         use_external = (
-            settings.USE_TAVILY_FALLBACK
-            and bool(settings.TAVILY_API_KEY.strip())
+            (settings.USE_WEB_MARKET_CONTEXT or settings.USE_TAVILY_FALLBACK)
+            and (
+                bool(settings.BRIGHT_DATA_API_KEY.strip())
+                or bool(settings.TAVILY_API_KEY.strip())
+            )
             and conf < settings.LOW_CONFIDENCE_THRESHOLD
         )
         if use_external:
@@ -536,8 +539,10 @@ class PriceEstimatorService:
                     place_bits.append(request_city_part)
                 if request_country_part:
                     place_bits.append(request_country_part)
+                if request_currency:
+                    place_bits.append(request_currency)
                 query = f"{material_val} in {', '.join([b for b in place_bits if b and b.lower() != 'unknown'] or ['unknown market'])}"
-                market = search_scrap_market_news(query)
+                market = search_scrap_market_news(query, country=request_country_part or "")
                 external_context = market.get("answer") or (
                     market.get("results", [{}])[0].get("content")
                     if market.get("results")
@@ -549,7 +554,7 @@ class PriceEstimatorService:
                     if result.get("url")
                 ]
             except Exception:
-                logger.warning("Tavily fallback failed; keeping deterministic estimate", exc_info=True)
+                logger.warning("Web market search failed; keeping deterministic estimate", exc_info=True)
 
         res = PriceEstimate(
             material_type=material,

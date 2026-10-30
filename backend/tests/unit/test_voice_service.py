@@ -37,6 +37,13 @@ def test_infer_lang_from_script():
     assert infer_lang_from_text("प्लास्टिक का रेट") == "hi"
 
 
+def test_parakeet_en_alias_maps_to_mlx_weights():
+    from app.services.parakeet_stt import _mlx_model_id
+
+    assert _mlx_model_id("nvidia/parakeet-tdt-0.6b-v2") == "mlx-community/parakeet-tdt-0.6b-v2"
+    assert _mlx_model_id("parakeet-en-0.6B") == "mlx-community/parakeet-tdt-0.6b-v2"
+
+
 def test_transcribe_without_stt_keys_is_unavailable(client: TestClient, monkeypatch):
     monkeypatch.setattr("app.api.endpoints.voice.stt_configured", lambda: False)
     res = client.post("/transcribe", files={"file": ("clip.webm", b"not-audio", "audio/webm")})
@@ -54,6 +61,7 @@ def test_indian_language_codes():
 def test_transcribe_keeps_sarvam_for_hindi(monkeypatch):
     monkeypatch.setattr("app.services.voice_service.sarvam_configured", lambda: True)
     monkeypatch.setattr("app.services.voice_service.groq_configured", lambda: True)
+    monkeypatch.setattr("app.services.voice_service.parakeet_available", lambda: False)
     monkeypatch.setattr(
         "app.services.voice_service._sarvam_transcribe",
         lambda *_args: ("प्लास्टिक का रेट क्या है", "hi"),
@@ -69,9 +77,33 @@ def test_transcribe_keeps_sarvam_for_hindi(monkeypatch):
     assert "प्लास्टिक" in text
 
 
+def test_transcribe_uses_local_parakeet_for_english(monkeypatch):
+    monkeypatch.setattr("app.services.voice_service.sarvam_configured", lambda: True)
+    monkeypatch.setattr("app.services.voice_service.groq_configured", lambda: True)
+    monkeypatch.setattr("app.services.voice_service.parakeet_available", lambda: True)
+    monkeypatch.setattr(
+        "app.services.voice_service._sarvam_transcribe",
+        lambda *_args: ("What is the PET rate?", "en"),
+    )
+    monkeypatch.setattr(
+        "app.services.voice_service._parakeet_transcribe",
+        lambda *_args: ("What is the PET rate near me?", "en"),
+    )
+
+    def _groq_should_not_run(*_args):
+        raise AssertionError("Groq should not run when Parakeet succeeds")
+
+    monkeypatch.setattr("app.services.voice_service._groq_transcribe", _groq_should_not_run)
+    monkeypatch.setattr("app.services.voice_service.correct_transcript", lambda text, _lang: text)
+    text, lang = transcribe_audio(b"audio", "clip.webm")
+    assert lang == "en"
+    assert text == "What is the PET rate near me?"
+
+
 def test_transcribe_falls_back_to_groq_for_english(monkeypatch):
     monkeypatch.setattr("app.services.voice_service.sarvam_configured", lambda: True)
     monkeypatch.setattr("app.services.voice_service.groq_configured", lambda: True)
+    monkeypatch.setattr("app.services.voice_service.parakeet_available", lambda: False)
     monkeypatch.setattr(
         "app.services.voice_service._sarvam_transcribe",
         lambda *_args: ("What is the PET rate?", "en"),

@@ -18,6 +18,10 @@ def test_health_api_v1(client: TestClient):
     assert body["status"] == "ok"
     assert "models" in body
     assert body["models"]["provider"] == _expected_provider()
+    assert body["llm_max_tokens"]["super"] == settings.LLM_SUPER_MAX_TOKENS
+    assert "llm_budget" in body
+    assert "search" in body
+    assert "bright_data" in body["search"]
 
 
 def test_health_root_backward_compatible(client: TestClient):

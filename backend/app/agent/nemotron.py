@@ -47,14 +47,22 @@ def _api_key() -> str:
     return key
 
 
-def _chat_model(*, model: str, base_url: str, temperature: float = 0) -> ChatOpenAI:
+def _chat_model(
+    *,
+    model: str,
+    base_url: str,
+    temperature: float = 0,
+    max_tokens: int,
+    timeout: float | None = None,
+) -> ChatOpenAI:
     return ChatOpenAI(
         model=model,
         base_url=base_url,
         api_key=_api_key(),
         temperature=temperature,
-        timeout=settings.NEBIUS_REQUEST_TIMEOUT,
+        timeout=timeout if timeout is not None else settings.NEBIUS_REQUEST_TIMEOUT,
         max_retries=settings.NEBIUS_MAX_RETRIES,
+        max_tokens=max_tokens,
     )
 
 
@@ -64,6 +72,7 @@ def nano_model(temperature: float = 0) -> ChatOpenAI:
         model=settings.NEMOTRON_NANO_MODEL,
         base_url=settings.NEBIUS_NANO_BASE_URL,
         temperature=temperature,
+        max_tokens=settings.LLM_NANO_MAX_TOKENS,
     )
 
 
@@ -73,18 +82,18 @@ def super_model(temperature: float = 0) -> ChatOpenAI:
         model=settings.NEMOTRON_SUPER_MODEL,
         base_url=settings.NEBIUS_REASONING_BASE_URL,
         temperature=temperature,
+        max_tokens=settings.LLM_SUPER_MAX_TOKENS,
     )
 
 
 def ultra_model(temperature: float = 0) -> ChatOpenAI:
     """Serious reasoning only: is this flagged sale legitimate or bad data?"""
-    return ChatOpenAI(
+    return _chat_model(
         model=settings.NEMOTRON_ULTRA_MODEL,
         base_url=settings.NEBIUS_REASONING_BASE_URL,
-        api_key=_api_key(),
         temperature=temperature,
+        max_tokens=settings.LLM_ULTRA_MAX_TOKENS,
         timeout=max(settings.NEBIUS_REQUEST_TIMEOUT, 90.0),
-        max_retries=settings.NEBIUS_MAX_RETRIES,
     )
 
 
@@ -126,7 +135,17 @@ def _everyday_spec(region_id: str) -> tuple[str, str]:
 def everyday_model(region_id: str | None = None, temperature: float = 0) -> ChatOpenAI:
     resolved = resolve_region(region_id)
     model, base_url = _everyday_spec(resolved)
-    return _chat_model(model=model, base_url=base_url, temperature=temperature)
+    max_tokens = (
+        settings.LLM_NANO_MAX_TOKENS
+        if resolved == "eu-north1"
+        else settings.LLM_SUPER_MAX_TOKENS
+    )
+    return _chat_model(
+        model=model,
+        base_url=base_url,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
 
 
 def region_info(region_id: str | None) -> dict[str, Any]:

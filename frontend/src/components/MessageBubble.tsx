@@ -14,7 +14,7 @@ import {
   tierLabel,
   trustedSaleText,
 } from '../lib/market'
-import { Volume2, Square, RotateCcw, ExternalLink, AlertTriangle, CheckCircle2, TrendingUp, MapPin, FileText, BarChart3 } from 'lucide-react'
+import { Volume2, Square, RotateCcw, ExternalLink, AlertTriangle, CheckCircle2, TrendingUp, MapPin, FileText, BarChart3, Box } from 'lucide-react'
 
 interface Props {
   message: ChatMessage
@@ -215,6 +215,25 @@ function RangeIndicator({ low, high, current }: { low: number; high: number; cur
   )
 }
 
+function formatPileQty(value: number): string {
+  if (value >= 10) return value.toFixed(0)
+  return String(Number(value.toFixed(1)))
+}
+
+function volumeLine(data: PriceData, hindi: boolean): string {
+  const kg = data.estimated_quantity_kg
+  const liters = data.estimated_volume_liters
+  if (kg == null && liters == null) return ''
+  const kgText = kg != null ? `${formatPileQty(kg)} kg` : ''
+  const literText = liters != null ? `${formatPileQty(liters)} L` : ''
+  if (hindi) {
+    if (kgText && literText) return `करीब ${kgText} (~${literText})`
+    return `करीब ${kgText || literText}`
+  }
+  if (kgText && literText) return `About ${kgText} (~${literText})`
+  return `About ${kgText || literText}`
+}
+
 function PriceCard({ data }: { data: PriceData }) {
   const language = readSettings().language
   const hindi = language === 'hi'
@@ -294,6 +313,17 @@ function PriceCard({ data }: { data: PriceData }) {
             {hindi ? `${sampleCount} रिपोर्ट` : `${sampleCount} report${sampleCount === 1 ? '' : 's'}`}
           </p>
         </div>
+        {volumeLine(data, hindi) && (
+          <div className="rounded-xl bg-[var(--color-bg-chat)] p-3 col-span-2">
+            <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+              <Box className="h-3 w-3" />
+              {hindi ? 'अनुमानित मात्रा' : 'Estimated volume'}
+            </p>
+            <p className="mt-1 text-[14px] font-semibold text-[var(--color-text)]">
+              {volumeLine(data, hindi)}
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="mt-3 border-t border-[var(--color-card-border)] pt-3">
@@ -302,7 +332,7 @@ function PriceCard({ data }: { data: PriceData }) {
           <span className="font-medium text-[var(--color-text)]">
             {tierLabel(data.tier_used, language)}
           </span>
-          {!hindi && data.used_external_context ? ' + Tavily market context' : ''}
+          {!hindi && data.used_external_context ? ' + web market context' : ''}
         </p>
         {data.external_sources && data.external_sources.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-2">

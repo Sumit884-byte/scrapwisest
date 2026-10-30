@@ -130,9 +130,10 @@ Sale reports that need confirmation are stored in a small pending-review table
 until the picker confirms or corrects them. Confirmed reports are then added to
 the trusted price pool and can influence future estimates.
 
-When `TAVILY_API_KEY` is configured, low-confidence estimates also include
-external market context and source links from Tavily. External web context is
-shown separately from trusted picker reports and does not silently overwrite the
+When `BRIGHT_DATA_API_KEY` is set, low-confidence estimates also include
+external market context and source links from Bright Data SERP (country-scoped
+via Google `gl`). Tavily is used only if Bright Data is unset. Web context is
+shown separately from trusted picker reports and does not overwrite the
 deterministic local estimate.
 
 Location inputs are normalized deterministically so common variants such as

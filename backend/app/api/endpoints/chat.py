@@ -19,16 +19,24 @@ from app.agent.main_agent import AgentContext, get_agent
 from app.agent.tool_outputs import begin, end
 from app.agent.nemotron import normalize_region, region_info
 from app.core.config import settings
+from app.core.exceptions import QuotaExceededError
+from app.core.llm_budget import clip_text, llm_budget, reserve_llm
 from app.repositories.report_repository import report_repo
 from app.schemas.chat import ChatResponse, ReportReviewData
 from app.schemas.price import PriceEstimate
 from app.schemas.report import MaterialType, PriceReport
 from app.services.price_estimator import price_estimator_service
-from app.services.image_service import image_service
+from app.services.image_service import attach_photo_volume, detected_material_tag, image_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["chat"])
+
+
+def _trip_if_provider_quota(exc: BaseException) -> None:
+    text = str(exc).lower()
+    if any(marker in text for marker in ("429", "insufficient_quota", "rate limit", "quota")):
+        llm_budget.trip_provider_quota()
 
 _TIER_PAREN = re.compile(
     r"\s*\((?:city[- ]level|local|seed|neighborhood|medium|high|low)[^)]*\)",
@@ -697,7 +705,7 @@ async def chat(
         description="Optional neighborhood/area within the city.",
     ),
 ):
-    text = message.strip()
+    text = clip_text(message)
     tf_region = normalize_region(region)
     place = join_place(city, country) or "unknown"
     logger.info(
@@ -747,6 +755,7 @@ async def chat(
     if image is None:
         logger.info("Path A: Text-only request. Invoking deep agent...")
         try:
+            reserve_llm("chat", picker_id)
             agent_result, captured_price, captured_report = await asyncio.to_thread(
                 _invoke_agent,
                 tf_region,
@@ -755,7 +764,14 @@ async def chat(
                 agent_context,
                 picker_market,
             )
+        except QuotaExceededError as exc:
+            if settings.ENABLE_LLM_FALLBACKS:
+                fallback = _deterministic_price_fallback(text, currency, country, city, neighborhood)
+                if fallback is not None:
+                    return fallback
+            raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
         except Exception as exc:
+            _trip_if_provider_quota(exc)
             logger.exception("Agent invocation failed for text-only path")
             if settings.ENABLE_LLM_FALLBACKS:
                 fallback = _deterministic_price_fallback(text, currency, country, city, neighborhood)
@@ -794,13 +810,12 @@ async def chat(
         logger.info("Classification reply: '%s'", reply)
         if classification.get("error") == "ambiguous_material":
             photo_tag = f"[image_material_ambiguous: {classification.get('category', 'unknown')}]"
+        elif classification.get("error") in {"not_scrap", "unsupported_material"}:
+            photo_tag = "[image_not_scrap]"
         elif "error" in classification:
             photo_tag = "[image_analysis_failed]"
         else:
-            photo_tag = (
-                f"[detected_material: {classification.get('material_type')}, "
-                f"confidence: {classification.get('confidence', 0):.2f}]"
-            )
+            photo_tag = detected_material_tag(classification)
         await asyncio.to_thread(
             _remember_thread,
             tf_region,
@@ -814,10 +829,12 @@ async def chat(
     logger.info("Path C: Photo + Text. Ingesting classification tag into message...")
     if classification.get("error") == "ambiguous_material":
         tag = f"[image_material_ambiguous: {classification.get('category', 'unknown')}]"
+    elif classification.get("error") in {"not_scrap", "unsupported_material"}:
+        tag = "[image_not_scrap]"
     elif "error" in classification:
         tag = "[image_analysis_failed]"
     else:
-        tag = f"[detected_material: {classification['material_type']}, confidence: {classification['confidence']:.2f}]"
+        tag = detected_material_tag(classification)
 
     augmented_content = with_picker_context(
         f"{text}\n\n{tag}", language, city, country, currency, neighborhood
@@ -825,6 +842,7 @@ async def chat(
     logger.info("Invoking deep agent with augmented content: '%s'", augmented_content)
 
     try:
+        reserve_llm("chat", picker_id)
         agent_result, captured_price, captured_report = await asyncio.to_thread(
             _invoke_agent,
             tf_region,
@@ -833,7 +851,10 @@ async def chat(
             agent_context,
             picker_market,
         )
-    except Exception:
+    except QuotaExceededError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+    except Exception as exc:
+        _trip_if_provider_quota(exc)
         logger.exception("Agent invocation failed for photo+text path")
         raise HTTPException(
             status_code=500, detail="Something went wrong processing your message."
@@ -842,6 +863,11 @@ async def chat(
     reply = _extract_reply(agent_result)
     logger.info("Deep agent reply extracted: '%s'", reply)
     return _persist_pending_review(
-        _chat_response(agent_result, tf_region, captured_price, captured_report),
+        _chat_response(
+            agent_result,
+            tf_region,
+            attach_photo_volume(captured_price, classification),
+            captured_report,
+        ),
         picker_id,
     )

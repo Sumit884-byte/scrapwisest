@@ -84,11 +84,13 @@ class Settings(BaseSettings):
     XKIRO_EVERYDAY_MODEL: str = "qwen/qwen3.8-omni-flash:free"
     XKIRO_REASONING_MODEL: str = "qwen/qwen3.8-max:free"
     XKIRO_REQUEST_TIMEOUT: float = 20.0
-    XKIRO_MAX_RETRIES: int = 2
+    XKIRO_MAX_RETRIES: int = 1
 
     # Nebius Token Factory / LLM Settings (Nemotron models)
     NEBIUS_API_KEY: str = ""
     TAVILY_API_KEY: str = ""
+    BRIGHT_DATA_API_KEY: str = ""
+    BRIGHT_DATA_SERP_ZONE: str = "serp_api1"
     GROQ_API_KEY: str = ""
     GROQ_WHISPER_MODEL: str = "whisper-large-v3"
     GROQ_STT_FIX_MODEL: str = "openai/gpt-oss-120b"
@@ -98,6 +100,10 @@ class Settings(BaseSettings):
     SARVAM_STT_MODE: str = "transcribe"
     SARVAM_TTS_MODEL: str = "bulbul:v3"
     SARVAM_TTS_SPEAKER: str = "priya"
+    # Local NVIDIA Parakeet EN 0.6B (TDT). Apple Silicon uses parakeet-mlx.
+    PARAKEET_ENABLED: bool = True
+    PARAKEET_MODEL: str = "nvidia/parakeet-tdt-0.6b-v2"
+    PARAKEET_FFMPEG: str = ""
     NEMOTRON_NANO_MODEL: str = "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
     NEMOTRON_SUPER_MODEL: str = "nvidia/nemotron-3-super-120b-a12b"
     NEMOTRON_ULTRA_MODEL: str = "nvidia/Nemotron-3-Ultra-550b-a55b"
@@ -106,8 +112,25 @@ class Settings(BaseSettings):
     TOKEN_FACTORY_DEFAULT_REGION: str = "us-central1"
     PIN_TOKEN_FACTORY_REGION: bool = False
     NEBIUS_REQUEST_TIMEOUT: float = 15.0
-    NEBIUS_MAX_RETRIES: int = 2
+    NEBIUS_MAX_RETRIES: int = 1
     ENABLE_LLM_FALLBACKS: bool = True
+
+    # Completion caps — picker replies are 1–2 sentences; do not let a model ramble.
+    LLM_NANO_MAX_TOKENS: int = 256
+    LLM_SUPER_MAX_TOKENS: int = 512
+    LLM_ULTRA_MAX_TOKENS: int = 640
+    LLM_MAX_INPUT_CHARS: int = 2500
+    LLM_MAX_SPEAK_CHARS: int = 400
+    GROQ_STT_FIX_MAX_TOKENS: int = 80
+    GROQ_VISION_MAX_TOKENS: int = 256
+
+    # Process-wide spend guards (in-memory; reset on restart).
+    LLM_MAX_TURNS_PER_MINUTE: int = 12
+    LLM_MAX_TURNS_PER_HOUR: int = 60
+    LLM_MAX_TURNS_PER_DAY: int = 250
+    LLM_MAX_TURNS_PER_PICKER_PER_MINUTE: int = 8
+    LLM_MAX_OUTPUT_TOKENS_PER_DAY: int = 80_000
+    LLM_CHAT_TURN_CALL_ESTIMATE: int = 3
 
     # Pricing & Anomaly Thresholds
     MIN_LOCAL_REPORTS: int = 5
@@ -160,6 +183,7 @@ class Settings(BaseSettings):
     LOW_CONFIDENCE_THRESHOLD: float = 0.6
     USE_LLM_REASONING: bool = True
     USE_TAVILY_FALLBACK: bool = True
+    USE_WEB_MARKET_CONTEXT: bool = True
 
     # Friendly material mappings (English, Urdu, Telugu)
     FRIENDLY_MATERIAL_NAMES: dict[str, tuple[str, str, str]] = {

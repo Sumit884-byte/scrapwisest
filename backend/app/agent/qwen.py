@@ -21,7 +21,13 @@ def _api_key() -> str:
     return key
 
 
-def _chat_model(*, model: str, base_url: str | None = None, temperature: float = 0) -> ChatOpenAI:
+def _chat_model(
+    *,
+    model: str,
+    base_url: str | None = None,
+    temperature: float = 0,
+    max_tokens: int,
+) -> ChatOpenAI:
     return ChatOpenAI(
         model=model,
         base_url=base_url or settings.XKIRO_BASE_URL,
@@ -29,6 +35,7 @@ def _chat_model(*, model: str, base_url: str | None = None, temperature: float =
         temperature=temperature,
         timeout=settings.XKIRO_REQUEST_TIMEOUT,
         max_retries=settings.XKIRO_MAX_RETRIES,
+        max_tokens=max_tokens,
     )
 
 
@@ -38,6 +45,7 @@ def nano_model(temperature: float = 0) -> ChatOpenAI:
         model=settings.XKIRO_FAST_MODEL,
         base_url=settings.XKIRO_BASE_URL,
         temperature=temperature,
+        max_tokens=settings.LLM_NANO_MAX_TOKENS,
     )
 
 
@@ -47,6 +55,7 @@ def super_model(temperature: float = 0) -> ChatOpenAI:
         model=settings.XKIRO_EVERYDAY_MODEL,
         base_url=settings.XKIRO_BASE_URL,
         temperature=temperature,
+        max_tokens=settings.LLM_SUPER_MAX_TOKENS,
     )
 
 
@@ -56,6 +65,7 @@ def ultra_model(temperature: float = 0) -> ChatOpenAI:
         model=settings.XKIRO_REASONING_MODEL,
         base_url=settings.XKIRO_BASE_URL,
         temperature=temperature,
+        max_tokens=settings.LLM_ULTRA_MAX_TOKENS,
     )
 
 

@@ -66,6 +66,16 @@ class ModelNotAvailableError(AppException):
         )
 
 
+class QuotaExceededError(AppException):
+    def __init__(self, message: str = "API budget is exhausted for now", details: Optional[Any] = None):
+        super().__init__(
+            message=message,
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            code="QUOTA_EXCEEDED",
+            details=details,
+        )
+
+
 class ExternalServiceError(AppException):
     def __init__(self, message: str = "External upstream service failed", details: Optional[Any] = None):
         super().__init__(

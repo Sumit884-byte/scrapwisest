@@ -1,0 +1,83 @@
+Scrapwisest — contributions
+===========================
+
+A scrap-price copilot for waste pickers: ask a rate or log a sale in their
+own language. Price math stays in code. No FX conversion.
+
+
+Useful-code order (not line count)
+----------------------------------
+
+1. Sumit — track + picker path + isolation
+   Nemotron routing, CI, Scrapwisest rename, voice / photo / settings,
+   market isolation so PKR and INR do not mix, token budget, scrap-photo
+   refusal + subtype grading.
+
+2. Sushmitha — review, demo, reliability
+   Pending review, demo market data, Telugu / Tavily, persistence, dark
+   mode, LICENSE / FEEDBACK.
+
+3. Tayyab — engine (discount theater)
+   First agents, estimator, Step 3 markets. Later forecast / xKIRO-as-
+   Ultra / CNN story is extra surface, not the judged product.
+
+4. Kaviyasri — auth on feat/auth only (not on main).
+
+
+What each person shipped
+------------------------
+
+TAYYAB
+  Repo start, intake / deep agent / estimator / image path, MVP.
+  xKIRO, landing UI, global schema, Step 3 location context.
+  Later: market-scoped seeds, freshness, trust lifecycle, evidence,
+  forecasting, cleanup (deleted keras / pkl / committed db).
+
+SUSHMITHA
+  Hackathon packaging, 3-tuple material fix, demo data, pending review,
+  pricing reliability, dark mode, conversation persistence.
+
+SUMIT
+  Nebius Token Factory Nano / Super / Ultra routing.
+  GitHub Actions CI without an API key.
+  Scrapsense → Scrapwisest; reply in the user's language.
+  Voice (Groq / Sarvam), photo grading, typeahead settings.
+  Isolate markets (PR #10). Merge / integrate teammate PRs.
+  LLM max tokens + daily / per-picker spend guards.
+  Non-scrap photos: smiley + ask for a real scrap picture.
+  Vision subtypes (PET, HDPE, aluminum, steel) tested on sample photos.
+
+
+NVIDIA models we can use (Token Factory)
+----------------------------------------
+
+Already wired
+  nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B     sale extract (cheap)
+  nvidia/nemotron-3-super-120b-a12b         everyday chat
+  nvidia/Nemotron-3-Ultra-550b-a55b         flagged-sale judge only
+
+Available, not wired
+  nvidia/Nemotron-3.5-Super-VL              scrap photos (replace Groq)
+  nvidia/Nemotron-3_5-Lightning             optional cheap text
+
+Do not put Ultra on chat or photos. Nano Omni is advertised but was not
+on the live /v1/models list when last checked.
+
+
+What to drop or not demo as real
+--------------------------------
+
+  Global seeds that still leak PKR; /materials inventing 50.0.
+  Isolation Forest / CNN as trained science.
+  Forecast + overview promises (RNN, TFLite, reporter-trust).
+  xKIRO named Nano / Super / Ultra.
+  DEMO_MODE and demo-seed as live picker data.
+  fixation_roadmap.md, empty leftover docs.
+
+
+Recent local (may not all be committed)
+---------------------------------------
+
+  backend/app/core/llm_budget.py
+  Vision prompt + label aliases in image_service.py
+  CONTRIBUTIONS.txt (this file)

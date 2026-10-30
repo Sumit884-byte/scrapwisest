@@ -20,6 +20,9 @@ from typing import Optional
 import edge_tts
 
 from app.core.config import settings
+from app.core.exceptions import QuotaExceededError
+from app.core.llm_budget import reserve_llm
+from app.services.parakeet_stt import parakeet_available, transcribe_parakeet
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +117,7 @@ def sarvam_configured() -> bool:
 
 
 def stt_configured() -> bool:
-    return groq_configured() or sarvam_configured()
+    return groq_configured() or sarvam_configured() or parakeet_available()
 
 
 def is_indian_lang(lang: Optional[str]) -> bool:
@@ -244,10 +247,16 @@ def correct_transcript(text: str, language: str) -> str:
         return original
 
     try:
+        reserve_llm("stt_fix")
+    except QuotaExceededError:
+        logger.warning("STT correction skipped: API budget exhausted")
+        return original
+
+    try:
         completion = _groq_client().chat.completions.create(
             model=settings.GROQ_STT_FIX_MODEL,
             temperature=0,
-            max_tokens=200,
+            max_tokens=settings.GROQ_STT_FIX_MAX_TOKENS,
             messages=[
                 {"role": "system", "content": _STT_FIX_SYSTEM},
                 {
@@ -314,6 +323,14 @@ def _sarvam_transcribe(audio_bytes: bytes, filename: str) -> tuple[str, str]:
     return text, detected
 
 
+def _parakeet_transcribe(audio_bytes: bytes, filename: str) -> tuple[str, str]:
+    text = transcribe_parakeet(audio_bytes, filename).strip()
+    detected = infer_lang_from_text(text) if text else "en"
+    if detected != "en":
+        detected = "en"
+    return text, detected
+
+
 def _groq_transcribe(audio_bytes: bytes, filename: str) -> tuple[str, str]:
     client = _groq_client()
     safe_name = filename or "audio.webm"
@@ -331,11 +348,14 @@ def _groq_transcribe(audio_bytes: bytes, filename: str) -> tuple[str, str]:
 
 
 def transcribe_audio(audio_bytes: bytes, filename: str) -> tuple[str, str]:
-    """Return (text, iso-639-1 language). Indic → Sarvam; otherwise Groq Whisper."""
+    """Return (text, iso-639-1 language).
+
+    Indic → Sarvam. English → local NVIDIA Parakeet EN 0.6B, then Groq Whisper.
+    """
     if not stt_configured():
         raise RuntimeError(
-            "No STT key is set. Add SARVAM_API_KEY for Indian languages "
-            "or GROQ_API_KEY for other languages."
+            "No STT is configured. Enable local Parakeet, or add "
+            "SARVAM_API_KEY / GROQ_API_KEY."
         )
 
     text = ""
@@ -348,13 +368,24 @@ def transcribe_audio(audio_bytes: bytes, filename: str) -> tuple[str, str]:
             used_sarvam = True
         except Exception:
             logger.exception("Sarvam STT failed")
-            if not groq_configured():
+            if not groq_configured() and not parakeet_available():
                 raise
 
     if used_sarvam and is_indian_lang(detected):
         if text:
             text = correct_transcript(text, detected)
         return text, detected
+
+    if parakeet_available():
+        try:
+            text, detected = _parakeet_transcribe(audio_bytes, filename)
+            if text:
+                text = correct_transcript(text, detected)
+            return text, detected
+        except Exception:
+            logger.exception("Local Parakeet STT failed")
+            if not groq_configured():
+                raise
 
     if groq_configured():
         text, detected = _groq_transcribe(audio_bytes, filename)
@@ -457,9 +488,10 @@ def _sarvam_speak(text: str, lang: str) -> bytes:
     raise RuntimeError("Sarvam TTS has no available model.")
 
 
-async def _edge_speak(text: str, lang: str) -> bytes:
-    voice = voice_for_lang(lang)
-    logger.info("Edge-TTS voice=%s lang=%s", voice, lang)
+async def _edge_speak(text: str, lang: str, voice: str | None = None) -> bytes:
+    chosen = (voice or "").strip() or voice_for_lang(lang)
+    logger.info("Edge-TTS voice=%s lang=%s", chosen, lang)
+    voice = chosen
     communicate = edge_tts.Communicate(text, voice)
     chunks: list[bytes] = []
     async for chunk in communicate.stream():
@@ -470,10 +502,17 @@ async def _edge_speak(text: str, lang: str) -> bytes:
     return b"".join(chunks)
 
 
-async def synthesize_speech(text: str, lang: Optional[str] = None) -> bytes:
+async def synthesize_speech(
+    text: str,
+    lang: Optional[str] = None,
+    voice: Optional[str] = None,
+) -> bytes:
     """Speak with Sarvam Bulbul for Indian languages; Edge-TTS otherwise."""
     resolved = normalize_lang(lang) if lang else infer_lang_from_text(text)
     spoken = prepare_speech_text(text)
+    named = (voice or "").strip()
+    if named:
+        return await _edge_speak(spoken, resolved, named)
     if sarvam_configured() and sarvam_tts_language_code(resolved):
         try:
             return await asyncio.to_thread(_sarvam_speak, spoken, resolved)
