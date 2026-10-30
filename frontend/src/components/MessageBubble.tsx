@@ -276,7 +276,7 @@ function PriceCard({ data }: { data: PriceData }) {
         </div>
       </div>
 
-      {low !== high && <RangeIndicator low={low} high={high} current={current} />}
+      {!unavailable && low !== high && <RangeIndicator low={low} high={high} current={current} />}
 
       <div className="mt-4 grid grid-cols-2 gap-3">
         <div className="rounded-xl bg-[var(--color-bg-chat)] p-3">
@@ -285,7 +285,7 @@ function PriceCard({ data }: { data: PriceData }) {
             {hindi ? 'रेंज' : 'Observed range'}
           </p>
           <p className="mt-1 text-[14px] font-semibold text-[var(--color-text)]">
-            {low}–{high}
+            {unavailable ? '—' : `${low}–${high}`}
           </p>
         </div>
         <div className="rounded-xl bg-[var(--color-bg-chat)] p-3">
@@ -332,7 +332,7 @@ function PriceCard({ data }: { data: PriceData }) {
           <span className="font-medium text-[var(--color-text)]">
             {tierLabel(data.tier_used, language)}
           </span>
-          {!hindi && data.used_external_context ? ' + web market context' : ''}
+          {!hindi && data.used_external_context ? ' + checked listings' : ''}
         </p>
         {data.external_sources && data.external_sources.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-2">

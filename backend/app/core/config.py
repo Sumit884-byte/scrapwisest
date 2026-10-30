@@ -31,7 +31,6 @@ class Settings(BaseSettings):
     VERSION: str = "0.1.0"
     API_V1_STR: str = "/api/v1"
     DEBUG: bool = False
-    DEMO_MODE: bool = False
     CORS_ORIGINS: List[str] = ["*"]
 
     # Filesystem Directories
@@ -89,8 +88,6 @@ class Settings(BaseSettings):
     # Nebius Token Factory / LLM Settings (Nemotron models)
     NEBIUS_API_KEY: str = ""
     TAVILY_API_KEY: str = ""
-    BRIGHT_DATA_API_KEY: str = ""
-    BRIGHT_DATA_SERP_ZONE: str = "serp_api1"
     GROQ_API_KEY: str = ""
     GROQ_WHISPER_MODEL: str = "whisper-large-v3"
     GROQ_STT_FIX_MODEL: str = "openai/gpt-oss-120b"

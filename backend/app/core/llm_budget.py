@@ -1,7 +1,7 @@
 """
 In-process guards so paid LLM / STT / vision calls cannot run away.
 
-Caps are conservative for a hackathon demo: short completions plus a
+Caps are conservative: short completions plus a
 daily turn and output-token budget. State is process-local and resets
 when the backend restarts.
 """

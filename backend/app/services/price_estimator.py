@@ -31,7 +31,11 @@ from typing import List, Optional, Union
 from app.core.config import settings
 from app.repositories.report_repository import ReportRepository, report_repo
 from app.services.report_freshness import filter_fresh_reports
-from app.schemas.market import UNKNOWN_CURRENCY, market_key
+from app.schemas.market import (
+    UNKNOWN_CURRENCY,
+    expected_currency_for_country,
+    is_unknown_currency,
+)
 from app.schemas.price import PriceEstimate, PriceEvidence
 from app.schemas.report import MaterialType, PriceReport
 from app.services.location_resolver import (
@@ -47,12 +51,8 @@ logger = logging.getLogger(__name__)
 # Single source of truth: ``app.core.config.settings`` owns SEED_PRICES and
 # PRICE_PER_KG_BANDS for the verified Pakistan/PKR market only.
 # Cleanup: removed duplicated _SEED_BY_MARKET/_BAND_BY_MARKET caches here.
-# Helpers below delegate to ``settings.seed_price_for/price_band_for``
-# (canonical ``market_key`` identity) plus the documented legacy-unknown
-# fallback. No behavior change, no new values, no conversion.
-_VERIFIED_SEED_MARKET: tuple[str, str] = market_key(
-    settings.SEED_MARKET_COUNTRY, settings.SEED_MARKET_CURRENCY
-)
+# Helpers below delegate to ``settings.seed_price_for/price_band_for``.
+# A missing market is unavailable -- never reuse Pakistan numbers.
 
 # Backwards-compatible material-only view of the verified Pakistan/PKR
 # seeds. DEPRECATED for market-aware code: it is NOT a global table and
@@ -72,19 +72,6 @@ SEED_PRICES: dict[MaterialType, float] = {
     MaterialType.OTHER: settings.SEED_PRICES["other"],
 }
 
-# Legacy unknown market (requests/reports that never named a currency or
-# country) falls back to the verified Pakistan/PKR seeds so pre-global
-# callers keep working. This is a documented compatibility exception, not
-# a guess: historically every legacy row came from that market.
-#
-# It applies ONLY when the request names NO market context at all, i.e.
-# ``market_key(country, currency) == ("unknown", "")``. An explicit foreign
-# market (India/INR, USA/USD, France/EUR, or a mismatched India/PKR) NEVER
-# receives this fallback -- a missing market stays missing (seed -> None,
-# estimator tier -> "unavailable").
-_LEGACY_SEED_MARKET: tuple[str, str] = (UNKNOWN_CURRENCY, "")
-
-
 def _material_value(material: MaterialType | str) -> str:
     raw = material.value if hasattr(material, "value") else str(material)
     return raw.strip().lower()
@@ -96,16 +83,10 @@ def _seed_for(
     """Verified seed for ``(material, market)``, or None when unknown.
 
     Delegates to ``settings.seed_price_for`` (single source of truth).
-    Legacy unknown market ``("unknown", "")`` falls back to the verified
-    Pakistan/PKR seed for backwards compatibility. All other markets
-    return None. Never converts, never fabricates.
+    A missing country+currency is not a Pakistan market -- return None.
+    Never converts, never fabricates.
     """
-    direct = settings.seed_price_for(material, country, currency)
-    if direct is not None:
-        return direct
-    if market_key(country, currency) == _LEGACY_SEED_MARKET:
-        return settings.SEED_PRICES.get(_material_value(material))
-    return None
+    return settings.seed_price_for(material, country, currency)
 
 
 def _band_for(
@@ -114,16 +95,9 @@ def _band_for(
     """Verified sanity band for ``(material, market)``, or None.
 
     Delegates to ``settings.price_band_for`` (single source of truth).
-    Legacy unknown market falls back to the verified Pakistan/PKR band.
-    Explicit foreign markets return None. Never converts.
+    Unknown and foreign markets return None. Never converts.
     """
-    direct = settings.price_band_for(material, country, currency)
-    if direct is not None:
-        return direct
-    if market_key(country, currency) == _LEGACY_SEED_MARKET:
-        raw = settings.PRICE_PER_KG_BANDS.get(_material_value(material))
-        return tuple(raw) if raw is not None else None
-    return None
+    return settings.price_band_for(material, country, currency)
 
 
 def seed_info_for(
@@ -132,21 +106,11 @@ def seed_info_for(
     """Minimal seed provenance for ``(material, market)`` (no management UI).
 
     Returns ``{"material", "country", "currency", "price_per_kg", "source"}``
-    for verified markets, else None. The legacy unknown market resolves to
-    the Pakistan/PKR provenance for backwards compatibility.
+    for verified markets, else None.
     """
     price = _seed_for(material, country, currency)
     if price is None:
         return None
-    cur, ctry = market_key(country, currency)
-    if (cur, ctry) == _LEGACY_SEED_MARKET:
-        return {
-            "material": _material_value(material),
-            "country": settings.SEED_MARKET_COUNTRY,
-            "currency": settings.SEED_MARKET_CURRENCY,
-            "price_per_kg": price,
-            "source": settings.SEED_SOURCE,
-        }
     return {
         "material": _material_value(material),
         "country": settings.SEED_MARKET_COUNTRY,
@@ -281,6 +245,10 @@ class PriceEstimatorService:
         material_val = _material_value(material)
         request_currency = normalize_currency(currency)
         request_country_part = normalize_place_part(country)
+        if is_unknown_currency(request_currency):
+            inferred = expected_currency_for_country(request_country_part)
+            if inferred:
+                request_currency = inferred
         request_country = request_country_part.lower() if request_country_part else None
         request_city_part = normalize_place_part(city)
         request_city = request_city_part.lower() if request_city_part else None
@@ -471,33 +439,15 @@ class PriceEstimatorService:
                 ev_count = 0
                 ev_seed_source = settings.SEED_SOURCE
             else:
-                # No reports and no verified seed for this market: signal
-                # "no estimate" instead of inventing a number.
-                res = PriceEstimate(
-                    material_type=material,
-                    location=display_location,
-                    estimated_price_per_kg=0.0,
-                    currency=request_currency,
-                    min_price_per_kg=None,
-                    max_price_per_kg=None,
-                    used_external_context=False,
-                    external_context=None,
-                    external_sources=[],
-                    confidence=0.0,
-                    tier_used="unavailable",
-                    local_report_count=0,
-                    city_report_count=0,
-                    country_report_count=0,
-                    evidence=_make_evidence(
-                        source="unavailable",
-                        scope="unavailable",
-                        report_count=0,
-                        currency=request_currency,
-                        country=request_country_part,
-                        freshness_days=applied_freshness,
-                        seed_source=None,
-                    ),
-                )
+                # No reports and no verified seed: no invented number.
+                # Listings may still attach as context below.
+                price = 0.0
+                conf = 0.0
+                tier = "unavailable"
+                ev_source = "unavailable"
+                ev_scope = "unavailable"
+                ev_count = 0
+                ev_seed_source = None
                 logger.info(
                     "No market data or seed for material='%s' market=(currency='%s', country='%s') "
                     "-> unavailable (no estimate)",
@@ -505,7 +455,6 @@ class PriceEstimatorService:
                     request_currency,
                     request_country_part,
                 )
-                return res
 
         observed_prices = local_prices or city_prices or country_prices
         if observed_prices:
@@ -520,12 +469,11 @@ class PriceEstimatorService:
 
         external_context = None
         external_sources: list[str] = []
+        named_market = bool(request_country_part) or not is_unknown_currency(request_currency)
         use_external = (
             (settings.USE_WEB_MARKET_CONTEXT or settings.USE_TAVILY_FALLBACK)
-            and (
-                bool(settings.BRIGHT_DATA_API_KEY.strip())
-                or bool(settings.TAVILY_API_KEY.strip())
-            )
+            and bool(settings.TAVILY_API_KEY.strip())
+            and named_market
             and conf < settings.LOW_CONFIDENCE_THRESHOLD
         )
         if use_external:
@@ -543,16 +491,17 @@ class PriceEstimatorService:
                     place_bits.append(request_currency)
                 query = f"{material_val} in {', '.join([b for b in place_bits if b and b.lower() != 'unknown'] or ['unknown market'])}"
                 market = search_scrap_market_news(query, country=request_country_part or "")
-                external_context = market.get("answer") or (
-                    market.get("results", [{}])[0].get("content")
-                    if market.get("results")
-                    else None
+                from app.services.web_market import reliable_web_context
+
+                clean = reliable_web_context(
+                    market,
+                    currency=request_currency,
+                    country=request_country_part or "",
+                    city=request_city_part or "",
+                    material=material_val,
                 )
-                external_sources = [
-                    result["url"]
-                    for result in market.get("results", [])
-                    if result.get("url")
-                ]
+                external_context = clean.get("context")
+                external_sources = list(clean.get("sources") or [])
             except Exception:
                 logger.warning("Web market search failed; keeping deterministic estimate", exc_info=True)
 

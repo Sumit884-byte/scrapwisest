@@ -606,39 +606,6 @@ def _persist_pending_review(response: ChatResponse, picker_id: str) -> ChatRespo
     return response
 
 
-def _demo_price_response(text: str, currency: str = "", country: str = "", city: str = "", neighborhood: str = "") -> ChatResponse:
-    """Provide a no-API-key response for local UI testing only."""
-    lowered = text.lower()
-    material_aliases = (
-        (MaterialType.PLASTIC_PET, ("pet", "plastic")),
-        (MaterialType.PLASTIC_HDPE, ("hdpe",)),
-        (MaterialType.METAL_ALUMINUM, ("aluminum", "aluminium")),
-        (MaterialType.METAL_STEEL, ("steel",)),
-        (MaterialType.CARDBOARD, ("cardboard",)),
-        (MaterialType.MIXED_PAPER, ("paper",)),
-        (MaterialType.GLASS, ("glass",)),
-    )
-    material = next(
-        (candidate for candidate, aliases in material_aliases if any(alias in lowered for alias in aliases)),
-        MaterialType.PLASTIC_PET,
-    )
-    location = "Income Colony" if "income colony" in lowered else "Samejabad"
-    estimate = price_estimator_service.estimate(
-        material,
-        neighborhood.strip() or location,
-        currency=(currency.strip() or "unknown"),
-        country=country.strip() or None,
-        city=city.strip() or None,
-        neighborhood=neighborhood.strip() or None,
-    )
-    unit = estimate.currency if estimate.currency.lower() != "unknown" else "PKR"
-    reply = (
-        f"Demo estimate: {estimate.estimated_price_per_kg:.0f} {unit} per kg for "
-        f"{material.value.replace('_', ' ')} in {location}."
-    )
-    return ChatResponse(reply=reply, price_data=estimate)
-
-
 def _deterministic_price_fallback(text: str, currency: str = "", country: str = "", city: str = "", neighborhood: str = "") -> Optional[ChatResponse]:
     """Answer simple price questions when the LLM service is unavailable."""
     lowered = text.lower()
@@ -721,10 +688,6 @@ async def chat(
         pending_response = _pending_review_response(text, picker_id)
         if pending_response is not None:
             return pending_response
-
-    if settings.DEMO_MODE and image is None:
-        logger.info("DEMO_MODE enabled: returning deterministic local estimate")
-        return _demo_price_response(text, currency, country, city, neighborhood)
 
     agent_config = {"configurable": {"thread_id": picker_id}}
     agent_context = AgentContext(picker_id=picker_id)

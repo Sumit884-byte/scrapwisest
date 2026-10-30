@@ -338,3 +338,4 @@ def test_estimator_carries_currency_through():
 
     legacy = estimate(MaterialType.METAL_ALUMINUM, "Karol Bagh", [inr])
     assert legacy.currency == UNKNOWN_CURRENCY
+    assert legacy.tier_used == "unavailable"

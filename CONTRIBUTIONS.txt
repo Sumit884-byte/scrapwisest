@@ -71,8 +71,7 @@ What to drop or not demo as real
   Isolation Forest / CNN as trained science.
   Forecast + overview promises (RNN, TFLite, reporter-trust).
   xKIRO named Nano / Super / Ultra.
-  DEMO_MODE and demo-seed as live picker data.
-  fixation_roadmap.md, empty leftover docs.
+  Treating demo-seed rows as live picker data.
 
 
 Recent local (may not all be committed)

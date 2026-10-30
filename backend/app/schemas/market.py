@@ -78,6 +78,10 @@ KNOWN_COUNTRY_CURRENCIES: dict[str, str] = {
     "united states": "USD",
     "usa": "USD",
     "us": "USD",
+    "united kingdom": "GBP",
+    "uk": "GBP",
+    "france": "EUR",
+    "germany": "EUR",
 }
 
 

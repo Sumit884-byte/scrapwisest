@@ -173,28 +173,34 @@ def test_d_seed_identity_is_material_plus_market():
 
 
 # ---------------------------------------------------------------------------
-# Test E -- No market context (legacy compatibility only)
+# Test E -- No market context is unavailable (not a hidden PKR seed)
 # ---------------------------------------------------------------------------
 
-def test_e_legacy_no_market_context_preserved():
-    # Legacy callers that provide NO market context at all keep the
-    # documented Pakistan/PKR compatibility seed. This must never affect
-    # explicit foreign markets (covered by B/C/D).
-    legacy = estimate(MaterialType.PLASTIC_PET, "income colony", [])
-    assert legacy.tier_used == "seed"
-    assert legacy.estimated_price_per_kg == SEED_PRICES[MaterialType.PLASTIC_PET]
-    assert legacy.currency == UNKNOWN_CURRENCY
-
-    # Direct lookup for the legacy unknown market also resolves (compat).
-    assert _seed_for(MaterialType.PLASTIC_PET, None, UNKNOWN_CURRENCY) is not None
-    assert _seed_for(MaterialType.PLASTIC_PET, None, None) is not None
+def test_e_blank_market_is_unavailable():
+    blank = estimate(MaterialType.PLASTIC_PET, "income colony", [])
+    assert blank.tier_used == "unavailable"
+    assert blank.estimated_price_per_kg == 0.0
+    assert blank.currency == UNKNOWN_CURRENCY
+    assert _seed_for(MaterialType.PLASTIC_PET, None, UNKNOWN_CURRENCY) is None
+    assert _seed_for(MaterialType.PLASTIC_PET, None, None) is None
 
 
-def test_e_legacy_does_not_leak_into_explicit_markets():
-    # The legacy exception applies ONLY to market_key == ("unknown", "").
+def test_e_country_infers_currency_for_verified_seed():
+    pakistan = estimate(
+        MaterialType.PLASTIC_PET,
+        "Karachi",
+        [],
+        country="Pakistan",
+        city="Karachi",
+    )
+    assert pakistan.tier_used == "seed"
+    assert pakistan.currency == "PKR"
+    assert pakistan.estimated_price_per_kg == SEED_PRICES[MaterialType.PLASTIC_PET]
+
+
+def test_e_blank_does_not_leak_into_explicit_markets():
     assert market_key(None, None) == ("unknown", "")
     assert market_key(None, UNKNOWN_CURRENCY) == ("unknown", "")
-    # Explicit markets are never the legacy market.
     assert market_key("India", "INR") != ("unknown", "")
     assert market_key("United States", "USD") != ("unknown", "")
     assert market_key("India", "PKR") != ("unknown", "")
@@ -293,8 +299,7 @@ def test_bands_scoped_to_verified_market():
     assert _band_for(MaterialType.METAL_ALUMINUM, "India", "INR") is None
     assert _band_for(MaterialType.METAL_ALUMINUM, "United States", "USD") is None
     assert _band_for(MaterialType.METAL_ALUMINUM, "India", "PKR") is None
-    # Legacy unknown market keeps the compatibility band (documented).
-    assert _band_for(MaterialType.METAL_ALUMINUM, None, UNKNOWN_CURRENCY) is not None
+    assert _band_for(MaterialType.METAL_ALUMINUM, None, UNKNOWN_CURRENCY) is None
     # Strict settings helper: only the exact verified market.
     assert settings.price_band_for("metal_aluminum", "Pakistan", "PKR") == (150.0, 1500.0)
     assert settings.price_band_for("metal_aluminum", "India", "INR") is None

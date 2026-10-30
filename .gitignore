@@ -14,7 +14,4 @@ frontend/dist/
 .DS_Store
 backend/tests/fixtures/scrap_samples/
 
-# Video capture (Playwright, Arka, voiceover, remux)
 docs/demo/
-.cursor/skills/record-product-demo/
-frontend/public/demo-pet-bottles.jpg

@@ -2,9 +2,9 @@
 
 A scrap-price copilot waste pickers would actually use.
 
-Message what you sold, or ask what something is worth, in English, Telugu, Roman Telugu, Urdu, or Roman Urdu. Scrapwisest turns that messy field note into a trusted price — and remembers the neighborhood so the next check is faster.
+Ask a rate or log a sale in your language. Set country and city. The number on the card is that market's currency. Karachi rupees stay Karachi rupees — there is no FX.
 
-Built for the **Best Apps and Agents** track: a real workflow, powered by **Nemotron on Nebius Token Factory**, with Ultra reserved for hard judgment and Nano/Super on the everyday calls.
+Built for the **Best Apps and Agents** track: a real picker workflow on **Nemotron via Nebius Token Factory**, with Ultra reserved for hard judgment and Nano/Super on the everyday calls. MIT licensed.
 
 ---
 
@@ -23,22 +23,33 @@ The agent routes those itself. Price math and cheap fraud checks stay in code. L
 
 ---
 
-## MVP (what works now)
+## How the number is chosen
+
+A quote is scoped to **country + currency**. Neighborhood reports win first, then city, then country, all in that same currency. Trusted, fresh reports only.
+
+Seeds and sanity bands exist only for **Pakistan / PKR**. Another country does not inherit those numbers, and a blank place does not silently become Pakistan. No reports and no seed → **no estimate**. We never invent a sale.
+
+When `TAVILY_API_KEY` is set, low-confidence or seed estimates may attach public listings that already quote the **same currency per kg** in a sane band. Social posts are dropped. Listings never overwrite the quote.
+
+---
+
+## What works now
 
 | Flow | What happens |
 | --- | --- |
-| Price question | Super calls `estimate_price` (local reports → city → seed prices). One short reply in the picker's language. |
-| Sale report | Nano extracts material / kg / PKR / area. Rules validate it. Isolation Forest can flag weird price+quantity. **Ultra** only runs if those cheaper tiers already flagged the report. |
+| Price question | Super calls `estimate_price` (neighborhood → city → country → market seed, or unavailable). One short reply in the picker's language. |
+| Sale report | Nano extracts material / kg / money / place. Rules validate it. Isolation Forest can flag weird price+quantity. **Ultra** only runs if those cheaper tiers already flagged the report. |
 | Follow-up | If a field is missing, Super asks **one** specific question. Conversation stays on the picker id. |
-| Photo | Optional helper. Uses the local CNN when available, then a Groq vision fallback when the CNN is unavailable or uncertain. Ambiguous results ask the picker to clarify instead of silently guessing. |
+| Photo | Groq vision grades the pile (PET vs HDPE, aluminum vs steel, or refuse a selfie). Optional local CNN if you install the ML extras. A volume guess is not a logged sale. |
+| Speech | English STT can stay on-device with NVIDIA Parakeet TDT 0.6B. Indian languages can use Sarvam. TTS is Sarvam or Edge. |
 
-Out of scope for this MVP (and not needed to demo): forecasting, a reporter-trust score, a trained CNN in the default deploy.
+`GET /health` reports models, vision, Tavily, and voice providers. History and forecast endpoints exist as observational extras; they do not invent a current yard sale.
 
 ---
 
 ## Nemotron routing (Token Factory)
 
-The track brief is the architecture: **Ultra when you need serious reasoning. Nano or Super for the fast, everyday calls.** That keeps the chat responsive and the credits on the calls that matter.
+The track brief is the architecture: **Ultra when you need serious reasoning. Nano or Super for the fast, everyday calls.**
 
 | Call | Model | Why |
 | --- | --- | --- |
@@ -46,7 +57,7 @@ The track brief is the architecture: **Ultra when you need serious reasoning. Na
 | Picker chat, tools, memory | **Nemotron 3 Super** `nvidia/nemotron-3-super-120b-a12b` | Everyday copilot loop |
 | "Is this flagged sale real or junk?" | **Nemotron 3 Ultra** `nvidia/Nemotron-3-Ultra-550b-a55b` | Real judgment, rare |
 
-All three go through Nebius Token Factory (OpenAI-compatible). Nano is on `eu-north1`; Super and Ultra on `us-central1`. Override with environment variables if your project is pinned to one region.
+All three go through Nebius Token Factory (OpenAI-compatible). Nano is on `eu-north1`; Super and Ultra on `us-central1`. `LLM_PROVIDER=xkiro` is a free fallback when you have no Token Factory key.
 
 ```text
 Picker message
@@ -55,7 +66,7 @@ Picker message
       ▼
 
 Super (everyday) ── price question ──► estimate_price (no LLM)
-      │
+      │                               └── optional Tavily listings (same currency /kg)
       └── sale report ──► Nano extract ──► rules ──► Isolation Forest
                                                       │
                                               flagged? ── yes ──► Ultra judge
@@ -67,17 +78,20 @@ Super (everyday) ── price question ──► estimate_price (no LLM)
 
 ## Quick start
 
-You need a [Token Factory](https://tokenfactory.nebius.com) API key.
+You need a [Token Factory](https://tokenfactory.nebius.com) API key (or an xKiro key).
 
 ```bash
 cp .env.example backend/.env
-# put NEBIUS_API_KEY in backend/.env
+# put NEBIUS_API_KEY (or XKIRO_API_KEY) in backend/.env
+# optional: TAVILY_API_KEY, GROQ_API_KEY, SARVAM_API_KEY
 
 cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn main:app --port 8000
+env -u DATABASE_URL -u SARVAM_API_KEY uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
+
+Unset `DATABASE_URL` and `SARVAM_API_KEY` in the process environment so `backend/.env` wins.
 
 In another terminal:
 
@@ -87,77 +101,27 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173).
+Open [http://localhost:5173](http://localhost:5173). Set country and city in Place · Language, then:
 
-Optional multilingual mic (Sarvam Saaras for Indian languages, Groq Whisper fallback with auto-detection, then a small correction pass for nearby-word slips including garbled place names, followed by Sarvam Bulbul or Edge-TTS). Set `SARVAM_API_KEY` and/or `GROQ_API_KEY` in `backend/.env`. Without them, the mic falls back to the browser.
+- `What's the PET bottle rate in Karachi?`
+- `maine 2 kilo PET becha, 300 rupay mile, income colony ke qareeb`
+- Attach a scrap photo, or speak with the mic
 
-Optional CNN (photo helper only):
+Optional CNN (photo helper only): `pip install -r backend/requirements-ml.txt`
 
-```bash
-pip install -r backend/requirements-ml.txt
-```
+---
 
-### Try it
+## Product notes
 
-- `plastic ka rate kya hai`
-- `maine 2 kilo plastic becha, 300 rupay mile, income colony ke qareeb`
-- Attach a photo, or speak with the mic
+Sale reports that need confirmation stay pending until the picker confirms. Confirmed reports join the trusted price pool.
 
-`GET /health` returns the live Nano / Super / Ultra map.
+Location strings are normalized so `Income Colony`, `Income Colony, Multan`, and `income colony ke qareeb` can share history.
 
-### Load the demo market dataset
+Nebius calls use bounded timeouts, retries, and daily spend guards. If the LLM is down, simple price questions can still use the deterministic estimator.
 
-The repository includes a small, clearly labeled demo dataset so the price
-estimator can demonstrate neighborhood and cross-neighborhood estimates before
-real picker reports exist. It is not loaded automatically in production.
+`POST /api/v1/reports` uses the same checks as chat. Flagged REST reports return `needs_confirmation=true` and are not trusted pricing.
 
-From the repository root, run:
-
-```bash
-python backend/scripts/load_demo_data.py
-```
-
-The loader is idempotent and marks inserted rows with the internal
-`demo-seed` picker id. To start with a clean demo database, remove the local
-`backend/reports.db` file first, then run the loader again.
-
-For local frontend testing without a Nebius API key, set `DEMO_MODE=true` in
-`backend/.env`. This bypasses the LLM and returns a clearly labeled
-deterministic estimate from the demo dataset. It is only a UI preview mode and
-does not demonstrate the Nemotron workflow required for the hackathon.
-
-Sale reports that need confirmation are stored in a small pending-review table
-until the picker confirms or corrects them. Confirmed reports are then added to
-the trusted price pool and can influence future estimates.
-
-When `BRIGHT_DATA_API_KEY` is set, low-confidence estimates also include
-external market context and source links from Bright Data SERP (country-scoped
-via Google `gl`). Tavily is used only if Bright Data is unset. Web context is
-shown separately from trusted picker reports and does not overwrite the
-deterministic local estimate.
-
-Location inputs are normalized deterministically so common variants such as
-`Income Colony`, `Income Colony, Multan`, and `income colony ke qareeb` can
-share the same local report history.
-
-Nebius calls use bounded timeouts and configurable retries. If the LLM is
-temporarily unavailable, simple price questions can fall back to the local
-deterministic estimator instead of returning a server error.
-
-Reports submitted through `POST /api/v1/reports` now use the same deterministic
-and Isolation Forest checks as the chat workflow. Flagged REST reports are
-returned with `needs_confirmation=true` and are not added to trusted pricing.
-
-Uploaded photos are treated as temporary inputs and removed after image
-classification, including when classification fails.
-
-The visible text conversation is restored from device-local storage after a
-page refresh. The header includes a Clear chat control. Uploaded image files
-are intentionally not persisted because browser `File` objects and preview
-URLs are temporary; the text transcript remains available.
-
-The header also provides a device-local dark mode toggle using the same warm
-Scrapwisest palette.
+Photos are temporary and deleted after classification. Chat text is restored from device-local storage. The header has Clear and a local dark-mode toggle.
 
 ---
 
@@ -169,10 +133,8 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push and pull request 
 2. **Frontend** — `oxlint` + production build.
 3. **CD** (push to `main` only) — publishes the `frontend-dist` artifact so a host can pick it up.
 
-Run the same checks locally:
-
 ```bash
-cd backend && pip install -r requirements-dev.txt && PYTHONPATH=. pytest -q
+cd backend && pip install -r requirements-dev.txt && env -u DATABASE_URL PYTHONPATH=. pytest -q
 cd frontend && npm ci && npm run lint && npm run build
 ```
 
@@ -186,7 +148,6 @@ Neither is required for the track. Both are wired so you can ship the same MVP.
 
 ```bash
 docker build -t scrapwisest:mvp .
-# then, with the Nebius CLI and your project ids:
 nebius ai endpoint create \
   --name scrapwisest \
   --image <your-image> \
@@ -195,18 +156,10 @@ nebius ai endpoint create \
   --public
 ```
 
-**Serverless Job** — retrain the Isolation Forest from trusted reports after people start logging sales. No LLM call.
+**Serverless Job** — retrain the Isolation Forest from trusted reports. No LLM call.
 
 ```bash
-# from backend/, or inside the same image
 python -m jobs.retrain_anomaly
-```
-
-```bash
-nebius ai job create \
-  --name scrapwisest-retrain \
-  --image <your-image> \
-  --container-command "python -m jobs.retrain_anomaly"
 ```
 
 ---
@@ -214,13 +167,12 @@ nebius ai job create \
 ## Repo map
 
 ```text
-backend/agent/nemotron.py          # Token Factory client + Nano/Super/Ultra split
-backend/agent/main_agent.py        # Super copilot (deep agent)
-backend/agent/subagents/           # sale → extract → validate → anomaly
-backend/agent/tools/               # price estimator (pure math)
-backend/jobs/retrain_anomaly.py    # Serverless Job entrypoint
-frontend/                          # voice + photo chat UI
+backend/app/agent/nemotron.py      # Token Factory client + Nano/Super/Ultra
+backend/app/agent/main_agent.py    # Super copilot
+backend/app/services/price_estimator.py
+backend/app/services/web_market.py # same-currency listing filter
+backend/app/services/parakeet_stt.py
+frontend/                          # typeahead place + voice + photo chat
 ```
 
-Longer product notes: [`scrapwisest_project_overview.md`](scrapwisest_project_overview.md) and [`FEEDBACK.md`](FEEDBACK.md).
-
+Older product notes live under [`docs/archive/`](docs/archive/).
